@@ -42,8 +42,14 @@ def _bottleneckBlock(InputTensor, KernelSize, Filters, Strides,
 
     return x 
 
-def nnBase(InputShape=(256, 256, 3), BlockSizes=[3, 4, 6, 3], Trainable=False):
-    image_input = KL.Input(shape=InputShape)
+def nnBase(image_input, BlockSizes=[3, 4, 6, 3], Trainable=False):
+    """
+    :param image_input: KL.Input() 对象， a tensor variable
+    :param BlockSizes:
+    :param Trainable:
+    :return:
+    """
+    # image_input = KL.Input(shape=InputShape)
 
     # 基础模块 stage=1
     x = KL.ZeroPadding2D(padding=(3, 3))(image_input)
@@ -84,7 +90,9 @@ def nnBase(InputShape=(256, 256, 3), BlockSizes=[3, 4, 6, 3], Trainable=False):
 
 
 if __name__ == "__main__":
-    feature_output, image_input = nnBase(InputShape=(256, 256, 3), Trainable=True)
+    InputShape = (256, 256, 3)
+    image_input = KL.Input(shape=InputShape)
+    feature_output, image_input = nnBase(image_input=image_input, Trainable=True)
 
     model = KM.Model(inputs=image_input, outputs=feature_output)
 
