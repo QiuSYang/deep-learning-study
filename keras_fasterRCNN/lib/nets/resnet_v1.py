@@ -42,7 +42,7 @@ def _bottleneckBlock(InputTensor, KernelSize, Filters, Strides,
 
     return x 
 
-def nnBase(image_input, BlockSizes=[3, 4, 6, 3], Trainable=False):
+def nnBase(image_input=KL.Input(shape=(256, 256, 3)), BlockSizes=[3, 4, 6, 3], Trainable=False):
     """
     :param image_input: KL.Input() 对象， a tensor variable
     :param BlockSizes:

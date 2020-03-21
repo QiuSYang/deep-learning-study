@@ -8,8 +8,13 @@ import keras.layers as KL
 import keras.backend as KB 
 
 
-def nnBase(InputShape=(256, 256, 3), Trainable=False):
-    image_input = KL.Input(shape=InputShape)
+def nnBase(image_input=KL.Input(shape=(256, 256, 3)), Trainable=False):
+    """
+    :param image_input: KL.Input() 对象， a tensor variable
+    :param Trainable:
+    :return:
+    """
+    # image_input = KL.Input(shape=InputShape)
 
     # block 1 
     x = KL.Conv2D(64, (3, 3), strides=(1, 1), activation='relu', padding='same', 
