@@ -86,13 +86,13 @@ def nnBase(image_input=KL.Input(shape=(256, 256, 3)), BlockSizes=[3, 4, 6, 3], T
         x = _bottleneckBlock(x, 3, [512, 512, 2048], Strides=(1, 1), 
                             Stage=5, Block=str(i+1), Trainable=Trainable, ShutCut=False)
     #print("5_OK")
-    return x, image_input
+    return x
 
 
 if __name__ == "__main__":
     InputShape = (256, 256, 3)
     image_input = KL.Input(shape=InputShape)
-    feature_output, image_input = nnBase(image_input=image_input, Trainable=True)
+    feature_output = nnBase(image_input=image_input, Trainable=True)
 
     model = KM.Model(inputs=image_input, outputs=feature_output)
 

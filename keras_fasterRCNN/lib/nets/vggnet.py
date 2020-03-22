@@ -57,11 +57,13 @@ def nnBase(image_input=KL.Input(shape=(256, 256, 3)), Trainable=False):
                 name='block5_conv3', trainable=Trainable)(x)
     #x = KL.MaxPool2D((2, 2), strides=(2, 2), name='block5_pool')(x)
 
-    return x, image_input
+    return x
 
 
 if __name__ == "__main__":
-    feature_output, image_input = nnBase(Trainable=True)
+    InputShape = (256, 256, 3)
+    image_input = KL.Input(shape=InputShape)
+    feature_output = nnBase(image_input=image_input, Trainable=True)
 
     model = KM.Model(inputs=image_input, outputs=feature_output)
 
