@@ -56,9 +56,20 @@ class NetWork(object):
             pool5 = self._crop_pool_layer(net_conv, rois, "pool5")
         else:
             raise NotImplementedError
-    
-    # 为特征图生产anchors
+
+        fc7 = self._head_to_tail(pool5, is_training)
+
+    def _image_to_head(self, input_tensor, is_training):
+        raise NotImplementedError
+
+    def _head_to_tail(self, pool5, is_training):
+        raise NotImplementedError
+
     def _anchor_component(self):
+        """
+        # 为特征图生产anchors
+        :return:
+        """
         with tf.variable_scope('ANCHOR_' + self._tag) as scope:
             # just to get the shape right 
             height = tf.to_int32(tf.ceil(self._im_info[0] / np.float32(self._feat_stride[0])))
@@ -110,9 +121,10 @@ class NetWork(object):
 
         if is_training:
             rois, roi_scores = self._proposal_layer(rpn_cls_prob, rpn_bbox_pred, 'rois')
+            # 修正anchor
             rpn_labels = self._anchor_target_layer(rpn_cls_score, 'anchor')
             # Try to have a deterministic order for the computing graph, for reproducibility 
-            '''
+            """
             # tf.control_dependencies(control_inputs)
             # 此函数指定某些操作执行的依赖关系
 
@@ -126,7 +138,7 @@ class NetWork(object):
             # 1 with tf.control_dependencies([train_step, variable_averages_op]):
             # 2     train_op = tf.no_op(name='train')
             # tf.no_op()表示执行完 train_step, variable_averages_op 操作之后什么都不做
-            '''
+            """
             with tf.control_dependencies([rpn_labels]):
                 rois, _ = self._proposal_target_layer(rois, roi_scores, 'rpn_rois')
         else:
@@ -144,11 +156,46 @@ class NetWork(object):
         self._predictions['rpn_bbox_pred'] = rpn_bbox_pred 
         self._predictions['rois'] = rois
 
-        return rois 
+        return rois
 
-    # 为某层数据层进行形状转换
+    def _region_classification(self, fc7, is_training,
+                               initializer, initializer_bbox):
+        """
+        # 分类层
+        :param fc7:
+        :param is_training:
+        :param initializer:
+        :param initializer_bbox:
+        :return:
+        """
+        cls_score = KL.Dense(self._num_classes,
+                             kernel_initializer=initializer,
+                             trainable=is_training,
+                             name='cls_score')(fc7)
+        cls_prob = self._softmax_layer(cls_score, name='cls_prob')
+        cls_pred = tf.argmax(cls_score, axis=1, name='cls_pred')
+        bbox_pred = KL.Dense(self._num_classes,
+                             kernel_initializer=initializer_bbox,
+                             trainable=is_training,
+                             name='bbox_pred')(fc7)
+
+        self._predictions["cls_score"] = cls_score
+        self._predictions["cls_pred"] = cls_pred
+        self._predictions["cls_prob"] = cls_prob
+        self._predictions["bbox_pred"] = bbox_pred
+
+        return cls_prob, bbox_pred
+
     def _reshape_layer(self, bottom, numDim, name):
-        inputShape = tf.shape(bottom) #[None(0), height(1), weight(2), channel(3)]
+        """
+        # 为某层数据层进行形状转换
+        :param bottom:
+        :param numDim:
+        :param name:
+        :return:
+        """
+        # [None(0), height(1), weight(2), channel(3)]
+        inputShape = tf.shape(bottom)
         with tf.variable_scope(name) as scope:
             # change the channel to caffe format 
             toCaffe = tf.transpose(bottom, [0, 3, 1, 2])
@@ -160,8 +207,13 @@ class NetWork(object):
 
         return toTf
 
-    # softmax层
     def _softmax_layer(self, bottom, name):
+        """
+        # softmax层
+        :param bottom:
+        :param name:
+        :return:
+        """
         if name.startswith('rpn_cls_prob_reshape'):
             inputShape = tf.shape(bottom)
             bottomReshaped = KL.Reshape([-1, inputShape[-1]])(bottom)
@@ -171,8 +223,14 @@ class NetWork(object):
 
         return tf.nn.softmax(bottom, name=name)
 
-    # get anchor score and coor
     def _proposal_layer(self, rpn_cls_prob, rpn_bbox_pred, name):
+        """
+        # get anchor score and coor, anchors filter，mns提取rois
+        :param rpn_cls_prob:
+        :param rpn_bbox_pred:
+        :param name:
+        :return:
+        """
         with tf.variable_scope(name) as scope:
             if cfg.USE_E2E_TF:
                 rois, rpn_scores = proposal_layer_tf(
@@ -196,6 +254,13 @@ class NetWork(object):
         return rois, rpn_scores 
     
     def _proposal_top_layer(self, rpn_cls_prob, rpn_bbox_pred, name):
+        """
+        # top K 方法提取 rois
+        :param rpn_cls_prob:
+        :param rpn_bbox_pred:
+        :param name:
+        :return:
+        """
         with tf.variable_scope(name) as scope:
             if cfg.USE_E2E_TF:
                 rois, rpn_scores = proposal_top_layer_tf(
@@ -218,6 +283,12 @@ class NetWork(object):
         return rois, rpn_scores
 
     def _anchor_target_layer(self, rpn_cls_score, name):
+        """
+        # 修正anchor，计算修正参数，为loss准备
+        :param rpn_cls_score:
+        :param name:
+        :return:
+        """
         with tf.variable_scope(name) as scope:
             rpn_labels, rpn_bbox_targets, rpn_bbox_inside_weights, rpn_bbox_outside_weights = tf.py_func(
                 anchor_target_layer, 
@@ -242,6 +313,13 @@ class NetWork(object):
         return rpn_labels
 
     def _proposal_target_layer(self, rois, roi_scores, name):
+        """
+        # 修正mns提取的rois框，
+        :param rois:
+        :param roi_scores:
+        :param name:
+        :return:
+        """
         with tf.variable_scope(name) as scope:
             rois, roi_scores, labels, bbox_targets, bbox_inside_weights, bbox_outside_weights = tf.py_func(
                 proposal_target_layer,
@@ -280,10 +358,11 @@ class NetWork(object):
             # Won't be back-propagated to rois anyway, but to save time
             bboxes = tf.stop_gradient(tf.concat([y1, x1, y2, x2], axis=1))
             pre_pool_size = cfg.POOLING_SIZE * 2
-            crops = tf.image.crop_and_resize(bottom, bboxes, tf.to_int32(batch_ids), [pre_pool_size, pre_pool_size], name="crops")
+            crops = tf.image.crop_and_resize(bottom, bboxes, tf.to_int32(batch_ids),
+                                             [pre_pool_size, pre_pool_size], name="crops")
 
         # return slim.max_pool2d(crops, [2, 2], padding='SAME')
-        return KL.MaxPool2D(pool_size=(2, 2), padding='same')(crops)
+        return KL.MaxPooling2D(pool_size=(2, 2), padding='same')(crops)
 
     def create_architecture(self, mode, num_classes, tag=None, 
                             anchor_scales=(8, 16, 32), anchor_ratios=(0.5, 1, 2)):
