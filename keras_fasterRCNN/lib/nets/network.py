@@ -39,10 +39,10 @@ class NetWork(object):
         # select initializers 
         if True: # cfg.TRAIN.TRUNCATED:
             initializer = tf.truncated_normal_initializer(mean=0.0, stddev=0.01)
-            initializer_box = tf.truncated_normal_initializer(mean=0.0, stddev=0.001)
+            initializer_bbox = tf.truncated_normal_initializer(mean=0.0, stddev=0.001)
         else:
             initializer = tf.random_normal_initializer(mean=0.0, stddev=0.01)
-            initializer_box = tf.random_normal_initializer(mean=0.0, stddev=0.001)
+            initializer_bbox = tf.random_normal_initializer(mean=0.0, stddev=0.001)
         
         net_conv = None
         with tf.variable_scope():
@@ -58,6 +58,11 @@ class NetWork(object):
             raise NotImplementedError
 
         fc7 = self._head_to_tail(pool5, is_training)
+
+        cls_prob, bbox_pred = self._region_classification(fc7, is_training,
+                                                          initializer, initializer_bbox)
+
+        return rois, cls_prob, bbox_pred
 
     def _image_to_head(self, input_tensor, is_training):
         raise NotImplementedError
@@ -158,6 +163,26 @@ class NetWork(object):
 
         return rois
 
+    def _crop_pool_layer(self, bottom, rois, name):
+        with tf.variable_scope(name) as scope:
+            batch_ids = tf.squeeze(tf.slice(rois, [0, 0], [-1, 1], name="batch_id"), [1])
+            # Get the normalized coordinates of bounding boxes
+            bottom_shape = tf.shape(bottom)
+            height = (tf.to_float(bottom_shape[1]) - 1.) * np.float32(self._feat_stride[0])
+            width = (tf.to_float(bottom_shape[2]) - 1.) * np.float32(self._feat_stride[0])
+            x1 = tf.slice(rois, [0, 1], [-1, 1], name="x1") / width
+            y1 = tf.slice(rois, [0, 2], [-1, 1], name="y1") / height
+            x2 = tf.slice(rois, [0, 3], [-1, 1], name="x2") / width
+            y2 = tf.slice(rois, [0, 4], [-1, 1], name="y2") / height
+            # Won't be back-propagated to rois anyway, but to save time
+            bboxes = tf.stop_gradient(tf.concat([y1, x1, y2, x2], axis=1))
+            pre_pool_size = cfg.POOLING_SIZE * 2
+            crops = tf.image.crop_and_resize(bottom, bboxes, tf.to_int32(batch_ids),
+                                             [pre_pool_size, pre_pool_size], name="crops")
+
+        # return slim.max_pool2d(crops, [2, 2], padding='SAME')
+        return KL.MaxPooling2D(pool_size=(2, 2), padding='same')(crops)
+
     def _region_classification(self, fc7, is_training,
                                initializer, initializer_bbox):
         """
@@ -222,6 +247,65 @@ class NetWork(object):
             return backReshaped
 
         return tf.nn.softmax(bottom, name=name)
+
+    def _smooth_l1_loss(self, bbox_pred, bbox_targets, bbox_inside_weights,
+                        bbox_outside_weights, sigma=1.0, dim=[1]):
+        sigma_2 = sigma ** 2
+        box_diff = bbox_pred - bbox_targets
+        in_box_diff = bbox_inside_weights * box_diff
+        abs_in_box_diff = tf.abs(in_box_diff)
+        smoothL1_sign = tf.stop_gradient(tf.to_float(tf.less(abs_in_box_diff, 1. / sigma_2)))
+        in_loss_box = tf.pow(in_box_diff, 2) * (sigma_2 / 2.) * smoothL1_sign \
+                      + (abs_in_box_diff - (0.5 / sigma_2)) * (1. - smoothL1_sign)
+        out_loss_box = bbox_outside_weights * in_loss_box
+        loss_box = tf.reduce_mean(tf.reduce_sum(
+            out_loss_box,
+            axis=dim
+        ))
+        return loss_box
+
+    def _add_losses(self, sigma_rpn=3.0):
+        with tf.variable_scope('LOSS_' + self._tag) as scope:
+            # RPN, class loss
+            rpn_cls_score = tf.reshape(self._predictions['rpn_cls_score_reshape'], [-1, 2])
+            rpn_label = tf.reshape(self._anchor_targets['rpn_labels'], [-1])
+            rpn_select = tf.where(tf.not_equal(rpn_label, -1))
+            rpn_cls_score = tf.reshape(tf.gather(rpn_cls_score, rpn_select), [-1, 2])
+            rpn_label = tf.reshape(tf.gather(rpn_label, rpn_select), [-1])
+            rpn_cross_entropy = tf.reduce_mean(
+                tf.nn.sparse_softmax_cross_entropy_with_logits(logits=rpn_cls_score, labels=rpn_label))
+
+            # RPN, bbox loss
+            rpn_bbox_pred = self._predictions['rpn_bbox_pred']
+            rpn_bbox_targets = self._anchor_targets['rpn_bbox_targets']
+            rpn_bbox_inside_weights = self._anchor_targets['rpn_bbox_inside_weights']
+            rpn_bbox_outside_weights = self._anchor_targets['rpn_bbox_outside_weights']
+            rpn_loss_box = self._smooth_l1_loss(rpn_bbox_pred, rpn_bbox_targets, rpn_bbox_inside_weights,
+                                                rpn_bbox_outside_weights, sigma=sigma_rpn, dim=[1, 2, 3])
+
+            # RCNN, class loss
+            cls_score = self._predictions["cls_score"]
+            label = tf.reshape(self._proposal_targets["labels"], [-1])
+            cross_entropy = tf.reduce_mean(
+                tf.nn.sparse_softmax_cross_entropy_with_logits(logits=cls_score, labels=label))
+
+            # RCNN, bbox loss
+            bbox_pred = self._predictions['bbox_pred']
+            bbox_targets = self._proposal_targets['bbox_targets']
+            bbox_inside_weights = self._proposal_targets['bbox_inside_weights']
+            bbox_outside_weights = self._proposal_targets['bbox_outside_weights']
+            loss_box = self._smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights, bbox_outside_weights)
+
+            self._losses['cross_entropy'] = cross_entropy
+            self._losses['loss_box'] = loss_box
+            self._losses['rpn_cross_entropy'] = rpn_cross_entropy
+            self._losses['rpn_loss_box'] = rpn_loss_box
+
+            loss = cross_entropy + loss_box + rpn_cross_entropy + rpn_loss_box
+            regularization_loss = tf.add_n(tf.losses.get_regularization_losses(), 'regu')
+            self._losses['total_loss'] = loss + regularization_loss
+
+        return loss
 
     def _proposal_layer(self, rpn_cls_prob, rpn_bbox_pred, name):
         """
@@ -343,26 +427,6 @@ class NetWork(object):
             self._score_summaries.update(self._proposal_targets)
 
         return rois, roi_scores
-    
-    def _crop_pool_layer(self, bottom, rois, name):
-        with tf.variable_scope(name) as scope:
-            batch_ids = tf.squeeze(tf.slice(rois, [0, 0], [-1, 1], name="batch_id"), [1])
-            # Get the normalized coordinates of bounding boxes
-            bottom_shape = tf.shape(bottom)
-            height = (tf.to_float(bottom_shape[1]) - 1.) * np.float32(self._feat_stride[0])
-            width = (tf.to_float(bottom_shape[2]) - 1.) * np.float32(self._feat_stride[0])
-            x1 = tf.slice(rois, [0, 1], [-1, 1], name="x1") / width
-            y1 = tf.slice(rois, [0, 2], [-1, 1], name="y1") / height
-            x2 = tf.slice(rois, [0, 3], [-1, 1], name="x2") / width
-            y2 = tf.slice(rois, [0, 4], [-1, 1], name="y2") / height
-            # Won't be back-propagated to rois anyway, but to save time
-            bboxes = tf.stop_gradient(tf.concat([y1, x1, y2, x2], axis=1))
-            pre_pool_size = cfg.POOLING_SIZE * 2
-            crops = tf.image.crop_and_resize(bottom, bboxes, tf.to_int32(batch_ids),
-                                             [pre_pool_size, pre_pool_size], name="crops")
-
-        # return slim.max_pool2d(crops, [2, 2], padding='SAME')
-        return KL.MaxPooling2D(pool_size=(2, 2), padding='same')(crops)
 
     def create_architecture(self, mode, num_classes, tag=None, 
                             anchor_scales=(8, 16, 32), anchor_ratios=(0.5, 1, 2)):
