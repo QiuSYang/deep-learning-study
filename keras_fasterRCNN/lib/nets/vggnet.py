@@ -68,8 +68,16 @@ class Vgg(Network):
         return x
 
     def _image_to_head(self, input_tensor, is_training):
+        """
         # 基础网络
-        pass
+        :param input_tensor:
+        :param is_training:
+        :return:
+        """
+
+        conv_net = self.nnBase(input_tensor, Trainable=is_training)
+
+        return conv_net
 
     def _head_to_tail(self, pool5, is_training):
         """
