@@ -93,6 +93,8 @@ class SelfModel(tf.keras.Model):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
     _logger.info("{}".format('build model start.'))
     # api_build_model()
     outputs = SelfModel()
