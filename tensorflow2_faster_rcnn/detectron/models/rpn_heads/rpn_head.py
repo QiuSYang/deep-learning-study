@@ -99,7 +99,10 @@ class RPNHead(tf.keras.Model):
 
             layer_outputs.append([rpn_class_logits, rpn_probs, rpn_deltas])
 
+        # zip(*layer_outputs)解压layer_outputs, 将所有feature layer rpn_class_logits,
+        # 保存到同一个tuple中, rpn_probs, rpn_deltas同理
         outputs = list(zip(*layer_outputs))
+        # 各个层数据组合到一起
         outputs = [tf.concat(list(o), axis=1) for o in outputs]
         rpn_class_logits, rpn_probs, rpn_deltas = outputs
 
