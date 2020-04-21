@@ -61,6 +61,13 @@ class AnchorGenerator(object):
         valid_flags = tf.ones(anchors.shape[0], dtype=tf.int32)
         zeros = tf.zeros(anchors.shape[0], dtype=tf.int32)
 
+        """
+        # tf.where(condition): condition是bool型值，True/False, 返回值，是condition中元素为True对应的索引
+        # tf.where(condition, x=None, y=None, name=None): condition， x, y 相同维度，condition是bool型值，True/False
+        #    返回值是对应元素，condition中元素为True的元素替换为x中的元素，为False的元素替换为y中对应元素
+        #    x只负责对应替换True的元素，y只负责对应替换False的元素，x，y各有分工
+        #    由于是替换，返回值的维度，和condition，x ， y都是相等的。
+        """
         valid_flags = tf.where(y_center <= img_shape[0], valid_flags, zeros)
         valid_flags = tf.where(x_center <= img_shape[1], valid_flags, zeros)
 
@@ -80,3 +87,9 @@ class AnchorGenerator(object):
         scale = self.scales[level]
         ratios = self.ratios
         feature_stride = self.feature_strides[level]
+
+        # Get all combinations of scales and ratios
+        # tf.meshgrid(x, y): 生产网格，x所有列坐标，y所有横坐标
+        scales, ratios = tf.meshgrid([float(scale)], ratios)
+        scales = tf.reshape(scales, [-1])
+        ratios = tf.reshape(ratios, [-1])
