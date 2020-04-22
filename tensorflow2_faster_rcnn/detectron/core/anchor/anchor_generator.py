@@ -17,7 +17,7 @@ class AnchorGenerator(object):
 
         Attributes
         ---
-            scales: 1D array of anchor sizes in pixels.
+            scales: 1D array of anchor sizes in pixels.(every feature map level)
             ratios: 1D array of anchor ratios of width/height.
             feature_strides: Stride of the feature map relative to the image in pixels.
         """
@@ -42,7 +42,21 @@ class AnchorGenerator(object):
 
         feature_shapes = [(pad_shape[0]//stride, pad_shape[1]//stride)
                           for stride in self.feature_strides]
-        anchors = None
+        anchors = [
+            self._generate_level_anchors(level, feature_shape)
+            for level, feature_shape in enumerate(feature_shapes)
+        ]
+        anchors = tf.concat(anchors, axis=0)
+
+        # generate valid flags
+        img_shapes = calc_img_shapes(img_metas)
+        valid_flags = [
+            self._generate_valid_flags(anchors, img_shapes[i])
+            for i in range(img_shapes.shape[0])
+        ]
+        valid_flags = tf.stack(valid_flags, axis=0)
+
+        return anchors, valid_flags
 
     def _generate_valid_flags(self, anchors, img_shape):
         """
@@ -89,7 +103,48 @@ class AnchorGenerator(object):
         feature_stride = self.feature_strides[level]
 
         # Get all combinations of scales and ratios
-        # tf.meshgrid(x, y): 生产网格，x所有列坐标，y所有横坐标
+        # tf.meshgrid(x, y): 生产网格，x对应所有列坐标，y对应所有横坐标
+        """python
+        # x = [1, 2, 3]
+        # y = [4, 5, 6]
+        # X, Y = tf.meshgrid(x, y)
+        # X = [[1, 2, 3],
+        #      [1, 2, 3],
+        #      [1, 2, 3]]
+        # Y = [[4, 4, 4],
+        #      [5, 5, 5],
+        #      [6, 6, 6]]
+        """
         scales, ratios = tf.meshgrid([float(scale)], ratios)
         scales = tf.reshape(scales, [-1])
         ratios = tf.reshape(ratios, [-1])
+
+        # Get all combinations of scales and ratios
+        scales, ratios = tf.meshgrid([float(scale)], ratios)
+        scales = tf.reshape(scales, [-1])
+        ratios = tf.reshape(ratios, [-1])
+
+        # Enumerate heights and widths from scales and ratios
+        heights = scales / tf.sqrt(ratios)
+        widths = scales * tf.sqrt(ratios)
+
+        # Enumerate shifts in feature space
+        shifts_y = tf.multiply(tf.range(feature_shape[0]), feature_stride)
+        shifts_x = tf.multiply(tf.range(feature_shape[1]), feature_stride)
+
+        shifts_x, shifts_y = tf.cast(shifts_x, tf.float32), tf.cast(shifts_y, tf.float32)
+        shifts_x, shifts_y = tf.meshgrid(shifts_x, shifts_y)
+
+        # Enumerate combinations of shifts, widths, and heights
+        box_widths, box_centers_x = tf.meshgrid(widths, shifts_x)
+        box_heights, box_centers_y = tf.meshgrid(heights, shifts_y)
+
+        # Reshape to get a list of (y, x) and a list of (h, w)
+        box_centers = tf.reshape(tf.stack([box_centers_y, box_centers_x], axis=2), (-1, 2))
+        box_sizes = tf.reshape(tf.stack([box_heights, box_widths], axis=2), (-1, 2))
+
+        # Convert to corner coordinates (y1, x1, y2, x2)
+        boxes = tf.concat([box_centers - 0.5 * box_sizes,
+                           box_centers + 0.5 * box_sizes], axis=1)
+
+        return boxes
