@@ -7,6 +7,7 @@ import tensorflow as tf
 layers = tf.keras.layers
 
 from detectron.utils.misc import *
+from detectron.core.anchor import anchor_generator
 
 
 class RPNHead(tf.keras.Model):
@@ -66,6 +67,11 @@ class RPNHead(tf.keras.Model):
                                             kernel_initializer='he_normal',
                                             name='rpn_bbox_pred')
 
+        self.generator = anchor_generator.AnchorGenerator(
+            scales=anchor_scales,
+            ratios=anchor_ratios,
+            feature_strides=anchor_feature_strides)
+
     def __call__(self, inputs, training=True):
         """
         Args
@@ -108,4 +114,81 @@ class RPNHead(tf.keras.Model):
 
         return rpn_class_logits, rpn_probs, rpn_deltas
 
+    def get_proposals(self,
+                      rpn_probs,
+                      rpn_deltas,
+                      img_metas,
+                      with_probs=False):
+        """Calculate proposals.
 
+        Args
+        ---
+            rpn_probs: [batch_size, num_anchors, (bg prob, fg prob)]
+            rpn_deltas: [batch_size, num_anchors, (dy, dx, log(dh), log(dw))]
+            img_metas: [batch_size, 11]
+            with_probs: bool.
+
+        Returns
+        ---
+            proposals: [batch_size * num_proposals, (batch_ind, y1, x1, y2, x2))] in
+                normalized coordinates if with_probs is False.
+                Otherwise, the shape of proposals in proposals_list is
+                [batch_size * num_proposals, (batch_ind, y1, x1, y2, x2, probs)]
+
+        """
+        anchors, valid_flags = self.generator.generate_pyramid_anchors(img_metas)
+
+        rpn_probs = rpn_probs[:, :, 1]
+
+        pad_shapes = calc_pad_shapes(img_metas)
+
+        proposals_list = [
+            self._get_proposals_single(
+                rpn_probs[i], rpn_deltas[i], anchors, valid_flags[i], pad_shapes[i], i, with_probs)
+            for i in range(img_metas.shape[0])
+        ]
+
+        proposals = tf.concat(proposals_list, axis=0)
+
+        # Stops gradient computation
+        return tf.stop_gradient(proposals)
+
+    def _get_proposals_single(self,
+                              rpn_probs,
+                              rpn_deltas,
+                              anchors,
+                              valid_flags,
+                              img_shape,
+                              batch_ind,
+                              with_probs):
+        """Calculate proposals.
+
+        Args
+        ---
+            rpn_probs: [num_anchors]
+            rpn_deltas: [num_anchors, (dy, dx, log(dh), log(dw))]
+            anchors: [num_anchors, (y1, x1, y2, x2)] anchors defined in
+                pixel coordinates.
+            valid_flags: [num_anchors]
+            img_shape: np.ndarray. [2]. (img_height, img_width)
+            batch_ind: int.
+            with_probs: bool.
+
+        Returns
+        ---
+            proposals: [num_proposals, (batch_ind, y1, x1, y2, x2)] in normalized
+                coordinates.
+        """
+
+        H, W = img_shape
+
+        # filter invalid anchors
+        valid_flags = tf.cast(valid_flags, tf.bool)
+
+        rpn_probs = tf.boolean_mask(rpn_probs, valid_flags)
+        rpn_deltas = tf.boolean_mask(rpn_deltas, valid_flags)
+        anchors = tf.boolean_mask(anchors, valid_flags)
+
+        # Improve performance
+        pre_nms_limit = min(6000, anchors.shape[0])
+        ix = tf.nn.top_k(rpn_probs, pre_nms_limit, sorted=True).indices
