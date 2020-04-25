@@ -9,6 +9,7 @@ layers = tf.keras.layers
 from detectron.utils.misc import *
 from detectron.core.anchor import anchor_generator, anchor_target
 from detectron.core.bbox import transforms
+from detectron.core.loss import losses
 
 
 class RPNHead(tf.keras.Model):
@@ -80,6 +81,9 @@ class RPNHead(tf.keras.Model):
             positive_fraction=positive_fraction,
             pos_iou_thr=pos_iou_thr,
             neg_iou_thr=neg_iou_thr)
+
+        self.rpn_class_loss = losses.RPNClassLoss()
+        self.rpn_bbox_loss = losses.RPNBBoxLoss()
 
     def __call__(self, inputs, training=True):
         """
@@ -244,4 +248,5 @@ class RPNHead(tf.keras.Model):
     def loss(self, rpn_class_logits, rpn_deltas, gt_boxes, gt_class_ids, img_metas):
         """Calculate rpn loss
         """
-        pass
+        anchors, valid_flags = self.generator.generate_pyramid_anchors(img_metas)
+
