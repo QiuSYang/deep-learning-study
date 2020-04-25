@@ -7,7 +7,8 @@ import tensorflow as tf
 layers = tf.keras.layers
 
 from detectron.utils.misc import *
-from detectron.core.anchor import anchor_generator
+from detectron.core.anchor import anchor_generator, anchor_target
+from detectron.core.bbox import transforms
 
 
 class RPNHead(tf.keras.Model):
@@ -71,6 +72,14 @@ class RPNHead(tf.keras.Model):
             scales=anchor_scales,
             ratios=anchor_ratios,
             feature_strides=anchor_feature_strides)
+
+        self.anchor_target = anchor_target.AnchorTarget(
+            target_means=target_means,
+            target_stds=target_stds,
+            num_rpn_deltas=num_rpn_deltas,
+            positive_fraction=positive_fraction,
+            pos_iou_thr=pos_iou_thr,
+            neg_iou_thr=neg_iou_thr)
 
     def __call__(self, inputs, training=True):
         """
@@ -185,10 +194,54 @@ class RPNHead(tf.keras.Model):
         # filter invalid anchors
         valid_flags = tf.cast(valid_flags, tf.bool)
 
+        # anchors score
         rpn_probs = tf.boolean_mask(rpn_probs, valid_flags)
+        # t, Parameter T used for anchors to proposals conversion
         rpn_deltas = tf.boolean_mask(rpn_deltas, valid_flags)
+        # valid anchors
         anchors = tf.boolean_mask(anchors, valid_flags)
 
         # Improve performance
         pre_nms_limit = min(6000, anchors.shape[0])
         ix = tf.nn.top_k(rpn_probs, pre_nms_limit, sorted=True).indices
+
+        # Gets the element of the corresponding index
+        rpn_probs = tf.gather(rpn_probs, ix)
+        rpn_deltas = tf.gather(rpn_deltas, ix)
+        anchors = tf.gather(anchors, ix)
+
+        """
+        # Get refined anchors
+        tx = (x − xa)/wa, ty = (y − ya)/ha, tw = log(w/wa), th = log(h/ha)
+        x = tx*wa + xa, y = ty*ha + ya, w = e^tw * wa, h = e^th * ha
+        """
+        proposals = transforms.delta2bbox(anchors, rpn_deltas,
+                                          self.target_means, self.target_stds)
+        window = tf.constant([0., 0., H, W], dtype=tf.float32)
+        proposals = transforms.bbox_clip(proposals, window)
+
+        # Normalize
+        proposals = proposals / tf.constant([H, W, H, W], dtype=tf.float32)
+
+        # NMS
+        indices = tf.image.non_max_suppression(proposals, rpn_probs,
+                                               self.proposal_count, self.nms_threshold)
+        proposals = tf.gather(proposals, indices)
+
+        if with_probs:
+            proposals_probs = tf.expand_dims(tf.gather(rpn_probs, indices), axis=1)
+            proposals = tf.concat([proposals, proposals_probs], axis=1)
+
+        # Pad
+        padding = tf.maximum(self.proposal_count - tf.shape(proposals)[0], 0)
+        proposals = tf.pad(proposals, [(0, padding), (0, 0)])
+
+        batch_inds = tf.ones((proposals.shape[0], 1)) * batch_ind
+        proposals = tf.concat([batch_inds, proposals], axis=1)
+
+        return proposals
+
+    def loss(self, rpn_class_logits, rpn_deltas, gt_boxes, gt_class_ids, img_metas):
+        """Calculate rpn loss
+        """
+        pass

@@ -1,5 +1,5 @@
 """
-FRN model for Keras.
+FRN model for tensorflow2.
 
 # Reference:
 - [Feature Pyramid Networks for Object Detection](
