@@ -57,3 +57,41 @@ class RPNBBoxLoss(layers.Layer):
         loss = tf.reduce_sum(loss)
 
         return loss
+
+
+class RCNNClassLoss(layers.Layer):
+    def __init__(self):
+        super(RCNNClassLoss, self).__init__()
+        self.sparse_categorical_crossentropy = \
+            losses.SparseCategoricalCrossentropy(from_logits=True,
+                                                 reduction=losses.Reduction.NONE)
+
+    def __call__(self, rcnn_labels, rcnn_class_logits, rcnn_label_weights):
+        # Filtering if label == -1
+        indices = tf.where(tf.not_equal(rcnn_labels, -1))
+        rcnn_labels = tf.gather_nd(rcnn_labels, indices)
+        rcnn_label_weights = tf.gather_nd(rcnn_label_weights, indices)
+        rcnn_class_logits = tf.gather_nd(rcnn_class_logits, indices)
+
+        # Calculate loss
+        loss = self.sparse_categorical_crossentropy(y_true=rcnn_labels,
+                                                    y_pred=rcnn_class_logits,
+                                                    sample_weight=rcnn_label_weights)
+        loss = tf.reduce_sum(loss)
+
+        return loss
+
+
+class RCNNBBoxLoss(layers.Layer):
+    def __init__(self):
+        super(RCNNBBoxLoss, self).__init__()
+        self.smooth_l1_loss = SmoothL1Loss()
+
+    def __call__(self, rcnn_delta_targets, rcnn_deltas, rcnn_delta_weights):
+        loss = self.smooth_l1_loss(y_true=rcnn_delta_targets,
+                                   y_pred=rcnn_deltas,
+                                   sample_weight=rcnn_delta_weights)
+        loss = tf.reduce_sum(loss)
+
+        return loss
+

@@ -6,10 +6,11 @@ import numpy as np
 import tensorflow as tf
 
 from detectron.core.bbox import transforms
+from detectron.models.detectors.faster_rcnn import FasterRCNN
 from detectron.utils.misc import *
 
 
-class RPNTestMixin(object):
+class RPNTestMixin(FasterRCNN):
 
     def simple_test_rpn(self, img, img_meta):
         """
@@ -33,7 +34,7 @@ class RPNTestMixin(object):
         return proposals
 
 
-class BBoxTestMixin(object):
+class BBoxTestMixin(FasterRCNN):
 
     def _unmold_detections(self, detections_list, img_metas):
         return [
