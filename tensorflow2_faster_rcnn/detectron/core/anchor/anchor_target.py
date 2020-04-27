@@ -110,5 +110,6 @@ class AnchorTarget(object):
         # 1. Set negative anchors first. They get overwritten below if a GT box is
         # matched to them.
         anchor_iou_argmax = tf.argmax(overlaps, axis=1)
-        anchor_iou_max = tf.reduce_max(overlaps, axis=[1])
+        # anchor_iou_max = tf.reduce_max(overlaps, axis=[1])
+        anchor_iou_max = tf.reduce_max(overlaps, axis=1)
 

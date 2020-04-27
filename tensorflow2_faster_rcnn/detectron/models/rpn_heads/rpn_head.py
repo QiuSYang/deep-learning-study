@@ -4,12 +4,12 @@
 import os
 import logging
 import tensorflow as tf
-layers = tf.keras.layers
-
 from detectron.utils.misc import *
 from detectron.core.anchor import anchor_generator, anchor_target
 from detectron.core.bbox import transforms
 from detectron.core.loss import losses
+
+layers = tf.keras.layers
 
 
 class RPNHead(tf.keras.Model):
@@ -250,3 +250,12 @@ class RPNHead(tf.keras.Model):
         """
         anchors, valid_flags = self.generator.generate_pyramid_anchors(img_metas)
 
+        rpn_labels, rpn_label_weights, rpn_delta_targets, rpn_delta_weights = \
+            self.anchor_target.build_targets(anchors, valid_flags, gt_boxes, gt_class_ids)
+
+        rpn_class_loss = self.rpn_class_loss(rpn_labels, rpn_class_logits,
+                                             rpn_label_weights)
+        rpn_bbox_loss = self.rpn_bbox_loss(rpn_delta_targets, rpn_deltas,
+                                           rpn_delta_weights)
+
+        return rpn_class_loss, rpn_bbox_loss
