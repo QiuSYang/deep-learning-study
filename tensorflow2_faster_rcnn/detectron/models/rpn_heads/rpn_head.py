@@ -238,6 +238,8 @@ class RPNHead(tf.keras.Model):
 
         # Pad
         padding = tf.maximum(self.proposal_count - tf.shape(proposals)[0], 0)
+        # tf.pad(tensor, paddings), 此处paddings=[(0, padding), (0, 0)],
+        # 代表在tensor的第1维两侧分别添加0，padding个片段，第2维两侧分别添加0，0个片段
         proposals = tf.pad(proposals, [(0, padding), (0, 0)])
 
         batch_inds = tf.ones((proposals.shape[0], 1)) * batch_ind

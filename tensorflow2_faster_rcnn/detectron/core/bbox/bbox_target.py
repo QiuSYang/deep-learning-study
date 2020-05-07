@@ -107,3 +107,55 @@ class ProposalTarget(object):
             delta_weights: [num_rois, num_classes, 4]
         """
         H, W = img_shape
+
+        # 去除扩充的预选框，扩充的预选框的四个坐标都设置为0
+        trimmed_proposals, _ = trim_zeros(proposals[:, 1:])
+        # 去除无效gt box
+        gt_boxes, non_zeros = trim_zeros(gt_boxes)
+        # 去除无效 box class label
+        gt_class_ids = tf.boolean_mask(gt_class_ids, non_zeros)
+
+        # gt box 数据归一化, 因为proposal是归一化的结果
+        gt_boxes = gt_boxes/tf.constant([H, W, H, W], dtype=tf.float32)
+
+        # overlaps是一个什么样的结果？是每个proposal与每个gt box 的IOU吗？
+        overlaps = geometry.compute_overlaps(trimmed_proposals, gt_boxes)
+        roi_iou_argmax = tf.argmax(overlaps, axis=1)  # 2d tensor
+        roi_iou_max = tf.reduce_max(overlaps, axis=1)  # 2d tensor
+
+        positive_roi_bool = (roi_iou_max >= self.pos_iou_thr)  # 2d tensor
+        positive_indices = tf.where(positive_roi_bool)[:, 0]  # 2d tensor(n, 2)第二列全为0 to 1d tensor
+
+        negative_indices = tf.where(roi_iou_max < self.neg_iou_thr)[:, 0]
+
+        # Subsample ROIs. Aim for 33% positive
+        # Positive ROIs
+        positive_count = int(self.num_rcnn_deltas*self.positive_fraction)
+        # 随机选取前positive_count个box
+        positive_indices = tf.random.shuffle(positive_indices)[:positive_count]
+        positive_count = tf.shape(positive_indices)[0]
+
+        # Negative ROIs. Add enough to maintain positive:negative ratio.
+        r = 1.0 / self.positive_fraction
+        negative_count = tf.cast(r * tf.cast(positive_count, tf.float32), tf.int32) - positive_count
+        negative_indices = tf.random.shuffle(negative_indices)[:negative_count]
+
+        # Gather selected ROIs
+        positive_rois = tf.gather(proposals, positive_indices)  # [num_positive_rois, 5]
+        negative_rois = tf.gather(proposals, negative_indices)  # [num_negative_rois, 5]
+
+        # Assign positive ROIs to GT boxes.
+        positive_overlaps = tf.gather(overlaps, positive_indices)
+        roi_gt_box_assignment = tf.argmax(positive_overlaps, axis=1)
+        roi_gt_boxes = tf.gather(gt_boxes, roi_gt_box_assignment)
+        labels = tf.gather(gt_class_ids, roi_gt_box_assignment)
+
+        delta_target = transforms.bbox2delta(positive_rois[:, 1:],
+                                             roi_gt_boxes, self.target_means, self.target_stds)
+
+        # 前景和背景框拼接，组成所有rois box
+        rois = tf.concat([positive_rois, negative_rois], axis=0)
+
+
+
+
