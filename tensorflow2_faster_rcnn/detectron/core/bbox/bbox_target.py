@@ -150,12 +150,46 @@ class ProposalTarget(object):
         roi_gt_boxes = tf.gather(gt_boxes, roi_gt_box_assignment)
         labels = tf.gather(gt_class_ids, roi_gt_box_assignment)
 
-        delta_target = transforms.bbox2delta(positive_rois[:, 1:],
+        delta_targets = transforms.bbox2delta(positive_rois[:, 1:],
                                              roi_gt_boxes, self.target_means, self.target_stds)
 
         # 前景和背景框拼接，组成所有rois box
         rois = tf.concat([positive_rois, negative_rois], axis=0)
 
+        N = tf.shape(negative_rois)[0]
+        P = tf.maximum(self.num_rcnn_deltas - tf.shape(rois)[0], 0)
+        num_bfg = rois.shape[0]
 
+        rois = tf.pad(rois, [(0, P), (0, 0)])  # [num_rois, 5]
+        labels = tf.pad(labels, [(0, N)], constant_values=0)
+        labels = tf.pad(labels, [(0, P)], constant_values=-1)  # [num_rois]
+        delta_targets = tf.pad(delta_targets, [(0, N + P), (0, 0)])  # [num_rois, 4]
 
+        # Compute weights
+        label_weights = tf.zeros((self.num_rcnn_deltas,), dtype=tf.float32)
+        delta_weights = tf.zeros((self.num_rcnn_deltas,), dtype=tf.float32)
+        if num_bfg > 0:
+            label_weights = tf.where(labels >= 0,
+                                     tf.ones((self.num_rcnn_deltas,), dtype=tf.float32) / num_bfg,
+                                     label_weights)
+
+            delta_weights = tf.where(labels > 0,
+                                     tf.ones((self.num_rcnn_deltas,), dtype=tf.float32) / num_bfg,
+                                     label_weights)
+
+        # tf.tile(tensor, [1, 4]) tensor沿第0维复制扩展1倍，沿第1维复制扩展4倍
+        delta_weights = tf.tile(tf.reshape(delta_weights, (-1, 1)), [1, 4])  # [num_rois, 4]
+
+        # Organize Box targets and weights
+        tile_delta_targets = tf.zeros((self.num_rcnn_deltas, self.num_classes, 4))
+        tile_delta_weights = tf.zeros((self.num_rcnn_deltas, self.num_classes, 4))
+        ids = tf.stack([tf.range(self.num_rcnn_deltas, dtype=labels.dtype), labels], axis=1)
+        # tf.tensor_scatter_nd_update(tensor1, ids_tensor, tensor2)
+        # 按照ids_tensor的索引位置在tensor1中找到位置用tensor2更新，tensor2的维度比tensor1维度小1
+        delta_targets = tf.tensor_scatter_nd_update(tile_delta_targets, ids,
+                                                    delta_targets)  # [num_rois, self.num_classes, 4]
+        delta_weights = tf.tensor_scatter_nd_update(tile_delta_weights, ids,
+                                                    delta_weights)  # [num_rois, self.num_classes, 4]
+
+        return rois, labels, label_weights, delta_targets, delta_weights
 
