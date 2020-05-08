@@ -89,7 +89,7 @@ class ProposalTarget(object):
         return rcnn_rois, rcnn_labels, rcnn_label_weights, rcnn_delta_targets, rcnn_delta_weights
 
     def _build_single_target(self, proposals, gt_boxes, gt_class_ids, img_shape, batch_ind):
-        """
+        """训练过程二次bbox时，在再一次对proposals进行筛选，一般选取256个proposal, 一般前景框64个，背景框192个
         Args
         ---
             proposals: [num_proposals, (batch_ind, y1, x1, y2, x2)] in normalized coordinates.
