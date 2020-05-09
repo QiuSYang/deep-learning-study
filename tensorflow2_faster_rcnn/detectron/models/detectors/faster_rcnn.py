@@ -133,6 +133,11 @@ class FasterRCNN(tf.keras.Model, RPNTestMixin, BBoxTestMixin):
             # 顺便继续对proposals进行筛选，一般一幅图像只会取前N个roi框送入RCNN网络进行分类
             rois, rcnn_labels, rcnn_label_weights, rcnn_delta_targets, rcnn_delta_weights = \
                 self.bbox_target.build_targets(proposals, gt_boxes, gt_class_ids, img_metas)
+
+            # (rois, rcnn_labels, rcnn_label_weights,
+            #  rcnn_delta_targets, rcnn_delta_weights) = self.bbox_target.build_targets(proposals, gt_boxes,
+            #                                                                           gt_class_ids, img_metas)
+
         else:
             rois = proposals
 
