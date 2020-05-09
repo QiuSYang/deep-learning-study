@@ -99,9 +99,9 @@ class PyramidROIAlign(tf.keras.layers.Layer):
         roi_to_level = tf.concat(roi_to_level, axis=0)
 
         # 下面代码相当于给pooled_rois进行排序，按照原有的rois顺序进行排列
-        # 获取roi索引排序之后，对应的pooled_roi索引
-        ix_copy = tf.nn.top_k(tf.cast(roi_to_level[:, 0], tf.float32),
-                              k=tf.shape(roi_to_level)[0]).indices[::-1]
+        # # 获取roi索引排序之后，对应的pooled_roi索引, 下面这个操作可以代替pooled_rois_copy之前的所有操作
+        # ix_copy = tf.nn.top_k(tf.cast(roi_to_level[:, 0], tf.float32),
+        #                       k=tf.shape(roi_to_level)[0]).indices[::-1]
 
         roi_range = tf.expand_dims(tf.range(tf.shape(roi_to_level)[0]), axis=1)
         roi_to_level = tf.concat([tf.cast(roi_to_level, tf.int32), roi_range],
@@ -115,7 +115,7 @@ class PyramidROIAlign(tf.keras.layers.Layer):
                          k=tf.shape(roi_to_level)[0]).indices[::-1]
         ix = tf.gather(roi_to_level[:, 1], ix)
 
-        pooled_rois_copy = tf.gather(pooled_rois, ix_copy)
+        # pooled_rois_copy = tf.gather(pooled_rois, ix_copy)
         pooled_rois = tf.gather(pooled_rois, ix)
 
         return pooled_rois
