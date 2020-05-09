@@ -71,6 +71,7 @@ class PyramidROIAlign(tf.keras.layers.Layer):
             level_roi_indices = tf.gather_nd(roi_indices, ix)
 
             # Keep track of which roi is mapped to which level
+            # roi映射到对应水平的feature map得到的pooled_roi，存储pooled_roi对应的roi的索引
             roi_to_level.append(ix)
 
             # Stop gradient propogation to ROI proposals
@@ -96,6 +97,12 @@ class PyramidROIAlign(tf.keras.layers.Layer):
         # Pack roi_to_level mapping into one array and add another
         # column representing the order of pooled rois
         roi_to_level = tf.concat(roi_to_level, axis=0)
+
+        # 下面代码相当于给pooled_rois进行排序，按照原有的rois顺序进行排列
+        # 获取roi索引排序之后，对应的pooled_roi索引
+        ix_copy = tf.nn.top_k(tf.cast(roi_to_level[:, 0], tf.float32),
+                              k=tf.shape(roi_to_level)[0]).indices[::-1]
+
         roi_range = tf.expand_dims(tf.range(tf.shape(roi_to_level)[0]), axis=1)
         roi_to_level = tf.concat([tf.cast(roi_to_level, tf.int32), roi_range],
                                  axis=1)
@@ -104,8 +111,11 @@ class PyramidROIAlign(tf.keras.layers.Layer):
         # Sort roi_to_level by batch then roi index
         # TF doesn't have a way to sort by two columns, so merge them and sort.
         sorting_tensor = roi_to_level[:, 0]*100000 + roi_to_level[:, 1]
-        ix = tf.nn.top_k(sorting_tensor, k=tf.shape(roi_to_level)[0]).indices[::-1]
+        ix = tf.nn.top_k(sorting_tensor,
+                         k=tf.shape(roi_to_level)[0]).indices[::-1]
         ix = tf.gather(roi_to_level[:, 1], ix)
+
+        pooled_rois_copy = tf.gather(pooled_rois, ix_copy)
         pooled_rois = tf.gather(pooled_rois, ix)
 
         return pooled_rois

@@ -173,9 +173,13 @@ class ProposalTarget(object):
                                      tf.ones((self.num_rcnn_deltas,), dtype=tf.float32) / num_bfg,
                                      label_weights)
 
+            # delta_weights = tf.where(labels > 0,
+            #                          tf.ones((self.num_rcnn_deltas,), dtype=tf.float32) / num_bfg,
+            #                          label_weights)
+
             delta_weights = tf.where(labels > 0,
                                      tf.ones((self.num_rcnn_deltas,), dtype=tf.float32) / num_bfg,
-                                     label_weights)
+                                     delta_weights)
 
         # tf.tile(tensor, [1, 4]) tensor沿第0维复制扩展1倍，沿第1维复制扩展4倍
         delta_weights = tf.tile(tf.reshape(delta_weights, (-1, 1)), [1, 4])  # [num_rois, 4]

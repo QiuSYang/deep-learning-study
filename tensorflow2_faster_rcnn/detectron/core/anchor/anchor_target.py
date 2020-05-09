@@ -172,6 +172,8 @@ class AnchorTarget(object):
             delta_weights = tf.where(labels > 0,
                                      tf.ones(delta_weights.shape, dtype=tf.float32) / num_bfg,
                                      delta_weights)
+
+        # tf.tile(tensor, [1, 4]) tensor沿第0维复制扩展1倍，沿第1维复制扩展4倍
         delta_weights = tf.tile(tf.reshape(delta_weights, (-1, 1)), [1, 4])
 
         return labels, label_weights, delta_targets, delta_weights

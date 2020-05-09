@@ -151,6 +151,7 @@ class RPNHead(tf.keras.Model):
         """
         anchors, valid_flags = self.generator.generate_pyramid_anchors(img_metas)
 
+        # 获取每个anchor的最大得分，取probs的第二个值
         rpn_probs = rpn_probs[:, :, 1]
 
         pad_shapes = calc_pad_shapes(img_metas)
