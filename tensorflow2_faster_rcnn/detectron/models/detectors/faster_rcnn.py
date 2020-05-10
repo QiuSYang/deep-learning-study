@@ -134,6 +134,7 @@ class FasterRCNN(tf.keras.Model, RPNTestMixin, BBoxTestMixin):
             rois, rcnn_labels, rcnn_label_weights, rcnn_delta_targets, rcnn_delta_weights = \
                 self.bbox_target.build_targets(proposals, gt_boxes, gt_class_ids, img_metas)
 
+            # python多行另一种写法
             # (rois, rcnn_labels, rcnn_label_weights,
             #  rcnn_delta_targets, rcnn_delta_weights) = self.bbox_target.build_targets(proposals, gt_boxes,
             #                                                                           gt_class_ids, img_metas)

@@ -151,7 +151,7 @@ class ProposalTarget(object):
         labels = tf.gather(gt_class_ids, roi_gt_box_assignment)
 
         delta_targets = transforms.bbox2delta(positive_rois[:, 1:],
-                                             roi_gt_boxes, self.target_means, self.target_stds)
+                                              roi_gt_boxes, self.target_means, self.target_stds)
 
         # 前景和背景框拼接，组成所有rois box
         rois = tf.concat([positive_rois, negative_rois], axis=0)
