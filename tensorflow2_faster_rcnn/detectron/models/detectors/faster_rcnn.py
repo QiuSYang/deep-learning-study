@@ -122,7 +122,7 @@ class FasterRCNN(tf.keras.Model, RPNTestMixin, BBoxTestMixin):
         # rpn network
         # rpn_class_logits: 特征分类未进行softmax转化的结果， rpn_probs: 特征分类进行softmax转化的结果
         # rpn_deltas: 对应论文中第一次边框回归的t参数，即预测框proposals与anchor之间的差异参数
-        rpn_class_logits, rpn_probs, rpn_deltas = self.rpn_head(rcnn_feature_maps,
+        rpn_class_logits, rpn_probs, rpn_deltas = self.rpn_head(rpn_feature_maps,
                                                                 training=training)
 
         # get proposals

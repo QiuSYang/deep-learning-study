@@ -15,7 +15,7 @@ _logger = logging.getLogger(__name__)
 class _Bottleneck(tf.keras.Model):
     def __init__(self, filters, block,
                  down_sampling=False, stride=1, **kwargs):
-        super(_Bottleneck, self).__init(**kwargs)
+        super(_Bottleneck, self).__init__(**kwargs)
 
         filter1, filter2, filter3 = filters
         conv_name_base = 'res' + block + '_branch'
@@ -34,7 +34,7 @@ class _Bottleneck(tf.keras.Model):
                                     name=conv_name_base + '2b')
         self.bn2b = layers.BatchNormalization(name=bn_name_base + '2b')
 
-        self.conv2c = layers.Conv2D(filter2, (1, 1),
+        self.conv2c = layers.Conv2D(filter3, (1, 1),
                                     kernel_initializer='he_normal',
                                     name=conv_name_base + '2c')
         self.bn2c = layers.BatchNormalization(name=bn_name_base + '2c')
@@ -83,7 +83,7 @@ class _Bottleneck(tf.keras.Model):
 
 
 class ResNet(tf.keras.Model):
-    def __init(self, depth, **kwargs):
+    def __init__(self, depth, **kwargs):
         super(ResNet, self).__init__(**kwargs)
 
         if depth not in [50, 101]:
