@@ -126,7 +126,8 @@ class AnchorTarget(object):
                           tf.ones(anchors.shape[0], dtype=tf.int32), labels)
         # 3. Set an anchors for each GT box (regardless of IoU value)
         gt_iou_argmax = tf.argmax(overlaps, axis=0)
-        # tf.tensor_scatter_nd_update() ?
+        # tf.tensor_scatter_nd_update(tensor1, ids_tensor, tensor2)
+        # 按照ids_tensor的索引位置在tensor1中找到位置用tensor2更新，tensor2的维度比tensor1维度小1
         labels = tf.tensor_scatter_nd_update(labels,
                                              tf.reshape(gt_iou_argmax, (-1, 1)),
                                              tf.ones(gt_iou_argmax.shape, dtype=tf.int32))

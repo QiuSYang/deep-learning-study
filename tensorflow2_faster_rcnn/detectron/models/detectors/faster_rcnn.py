@@ -130,7 +130,7 @@ class FasterRCNN(tf.keras.Model, RPNTestMixin, BBoxTestMixin):
 
         if training:
             # proposals(相当于第一次边框回顾的anchor)框与gt框进行差异计算得到第二边框回归参数t*, 即rcnn_delta_targets
-            # 顺便继续对proposals进行筛选，一般一幅图像只会取前N个roi框送入RCNN网络进行分类
+            # 顺便继续对proposals进行筛选，一般一幅图像只会取前N个roi(即前景+背景框的总和)框送入RCNN网络进行分类训练
             rois, rcnn_labels, rcnn_label_weights, rcnn_delta_targets, rcnn_delta_weights = \
                 self.bbox_target.build_targets(proposals, gt_boxes, gt_class_ids, img_metas)
 
@@ -140,6 +140,7 @@ class FasterRCNN(tf.keras.Model, RPNTestMixin, BBoxTestMixin):
             #                                                                           gt_class_ids, img_metas)
 
         else:
+            # 预测，rois就是rpn提取的候选框，不再进行筛选
             rois = proposals
 
         # roi align layer, 将roi映射到对应level feature map过去每个roi的特征向量

@@ -118,7 +118,7 @@ class ProposalTarget(object):
         # gt box 数据归一化, 因为proposal是归一化的结果
         gt_boxes = gt_boxes/tf.constant([H, W, H, W], dtype=tf.float32)
 
-        # overlaps是一个什么样的结果？是每个proposal与每个gt box 的IOU吗？
+        # overlaps是一个什么样的结果？是每个proposal与每个gt box 的IOU吗？(是的)
         overlaps = geometry.compute_overlaps(trimmed_proposals, gt_boxes)
         roi_iou_argmax = tf.argmax(overlaps, axis=1)  # 2d tensor
         roi_iou_max = tf.reduce_max(overlaps, axis=1)  # 2d tensor
@@ -140,7 +140,7 @@ class ProposalTarget(object):
         negative_count = tf.cast(r * tf.cast(positive_count, tf.float32), tf.int32) - positive_count
         negative_indices = tf.random.shuffle(negative_indices)[:negative_count]
 
-        # Gather selected ROIs
+        # Gather selected ROIs(positive_rois + negative_rois = self.num_rcnn_deltas(bbox提取的rois数目))
         positive_rois = tf.gather(proposals, positive_indices)  # [num_positive_rois, 5]
         negative_rois = tf.gather(proposals, negative_indices)  # [num_negative_rois, 5]
 
