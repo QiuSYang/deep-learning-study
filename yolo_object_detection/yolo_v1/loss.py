@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class YoloV1_loss(nn.Module):
+class YoloV1Loss(nn.Module):
     """yolo-v1 损失函数定义实现"""
     def __init__(self):
         pass

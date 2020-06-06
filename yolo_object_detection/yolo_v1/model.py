@@ -145,3 +145,7 @@ class YoloV1Net(nn.Module):
             num_features *= s
 
         return num_features
+
+
+if __name__ == "__main__":
+    pass
