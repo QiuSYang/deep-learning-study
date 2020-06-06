@@ -102,7 +102,6 @@ class YoloV1Net(nn.Module):
         self.fc1 = nn.Linear(1024*7*7, 4096)
 
         self.fc2 = nn.Linear(4096, 30*7*7)
-        pass
 
     def forward(self, x):
         x = self.conv_1(x)
