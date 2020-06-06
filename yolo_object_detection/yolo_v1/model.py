@@ -4,7 +4,7 @@
 import os
 import logging
 import torch
-from torch import nn
+import torch.nn as nn
 
 _logger = logging.getLogger(__name__)
 
@@ -131,6 +131,8 @@ class YoloV1Net(nn.Module):
         x = self.fc2(x)
         # 归一化到0-1
         x = torch.sigmoid(x)
+        # 最后输出形状是[batch_size, H, W, channel],
+        # 而输入形状是[batch_size, channel, H, W](是第一个全连接层之后被打乱的)
         x = x.view(-1, 7, 7, 30)
 
         return x
