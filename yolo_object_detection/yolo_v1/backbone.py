@@ -136,7 +136,6 @@ class YoloV1Net(nn.Module):
 
         return x
 
-
     def num_flat_features(self, x):
         # all dimensions except the batch dimension
         size = x.size()[1:]
