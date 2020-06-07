@@ -55,8 +55,12 @@ class BasicBlock(nn.Module):
 
 
 class YoloV1Net(nn.Module):
-    def __init__(self, num_classes=1000):
+    def __init__(self, s=7, b=2, num_classes=1000):
         super(YoloV1Net, self).__init__()
+
+        self.s = s  # 正方形网格数
+        self.b = b  # 每个格的预测框数
+        self.num_classes = num_classes  # 类别数
 
         # backbone network: darknet-19
         # 1-output : stride = 4, c = 64
@@ -101,7 +105,7 @@ class YoloV1Net(nn.Module):
 
         self.fc1 = nn.Linear(1024*7*7, 4096)
 
-        self.fc2 = nn.Linear(4096, 30*7*7)
+        self.fc2 = nn.Linear(4096, (5*self.b+self.num_classes)*self.s*self.s)
 
     def forward(self, x):
         x = self.conv_1(x)
