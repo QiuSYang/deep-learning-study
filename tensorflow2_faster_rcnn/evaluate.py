@@ -61,13 +61,14 @@ if __name__ == "__main__":
     # img_std = (58.395, 57.12, 57.375)
     img_std = (1., 1., 1.)
 
-    val_dataset = coco.CocoDataSet('./COCO2017/', 'val',
+    val_dataset = coco.CocoDataSet('./datasets', 'val',
                                    flip_ratio=0,
                                    pad_mode='fixed',
                                    mean=img_mean,
                                    std=img_std,
                                    scale=(800, 1344))
     print(len(val_dataset))
+    print(len(val_dataset.get_categories()))
 
     model = faster_rcnn.FasterRCNN(
         num_classes=len(val_dataset.get_categories()))
