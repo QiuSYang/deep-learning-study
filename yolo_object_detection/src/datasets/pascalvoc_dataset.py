@@ -165,8 +165,10 @@ class PascalVocDataset(data.Dataset):
         if self.transform is not None:
             # 将list转化为np.ndarray
             target = np.array(target)
-            # 调试使用，显示原始图像
-            self.image_show(img, target)
+
+            # # 调试使用，显示原始图像
+            # self.image_show(img, target)
+
             # img为cv图片
             # boxes=[xmin, ymin, xmax, ymax]\in[0,1],
             # abels=类名对应的序号,i.e.[idx]
@@ -178,8 +180,9 @@ class PascalVocDataset(data.Dataset):
             # hstack, 在最低的维度进行连接，这不还原成了上面的target？
             # [[xmin, ymin, xmax, ymax, label_idx], ... ]
             target = np.hstack((boxes, np.expand_dims(labels.astype(int), axis=1)))
-            # 调试使用，显示变换后的图像
-            self.image_show(img, target)
+
+            # # 调试使用，显示变换后的图像
+            # self.image_show(img, target)
 
         # scale height or width([xmin, ymin, xmax, ymax, label_idx])
         for i in range(len(target[:4])):
