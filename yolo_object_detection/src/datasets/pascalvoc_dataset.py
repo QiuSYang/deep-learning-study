@@ -81,7 +81,7 @@ class VOCAnnotationTransform(object):
             for i, pt in enumerate(pts):
                 # bbox 数值为像素点的位置，从1开始取所以要减去1？
                 cur_pt = int(bbox.find(pt).text) - 1
-                # scale height or width(变换之后再转)
+                # scale height or width(变换之后再归一化)
                 # cur_pt = cur_pt / width if i % 2 == 0 else cur_pt / height
                 bndbox.append(cur_pt)
             label_idx = self.class_to_ind[name]
@@ -150,7 +150,7 @@ class PascalVocDataset(data.Dataset):
         # '%s/Annotations/%s.xml'.format((./VOCdevkit/VOC2007, Img_ID))
         # ===>./root/VOC2007/Annotations/Image_ID.xml'
         # target 为解析后的.xml 文件根节点。
-        xml_file = self._annopath % img_id
+        # xml_file = self._annopath % img_id
         target = ET.parse(self._annopath % img_id).getroot()
         # ===>./root/VOC2007/Annotations/Image_ID.jpg'
         img = cv2.imread(self._imgpath % img_id)
@@ -184,7 +184,7 @@ class PascalVocDataset(data.Dataset):
             # # 调试使用，显示变换后的图像
             # self.image_show(img, target)
 
-        # scale height or width([xmin, ymin, xmax, ymax, label_idx])
+        # scale height or width([xmin, ymin, xmax, ymax, label_idx])-归一化
         for i in range(len(target[:4])):
             if i % 2 == 0:
                 target[:, i] = target[:, i]/float(img.shape[1])
@@ -192,7 +192,7 @@ class PascalVocDataset(data.Dataset):
                 target[:, i] = target[:, i] / float(img.shape[0])
 
         # tensor[c,h,w], np.array[[xmin, ymin, xmax, ymax, label_ind], ... ]
-        # 返回的转置的数组
+        # 返回的转置的数组, target, 原始图像(即没有变换之前的)高、宽
         return torch.from_numpy(img).permute(2, 0, 1), target, height, width
         # return torch.from_numpy(img), target, height, width
 
@@ -269,12 +269,86 @@ class PascalVocDataset(data.Dataset):
         cv2.waitKey()
 
 
+def gt_data_encoder(boxes, labels, grid_num=7):
+    """ yolo-v1 gt bbox 编码，变为[[30 length tensor]]
+    boxes (tensor) [[x1,y1,x2,y2],[]]
+    labels (tensor) [...]
+    return SxSx30
+    30: B1[:4], Obj1[4], B2[5:9], Obj[9], C[9:]
+    """
+    # 初始化gt tensor(与yolo-v1最后一层网络的输出相同)
+    target = torch.zeros((grid_num, grid_num, 30))
+    # 将网格归一化(计算单位网格的宽度)
+    cell_size = 1.0 / grid_num
+    # boxes的(w, h) - （右下角坐标 - 右上角坐标）
+    wh = boxes[:, 2:] - boxes[:, :2]
+    # center(x, y)
+    cxcy = (boxes[:, 2:] + boxes[:, :2]) / 2.0
+
+    # 扫描每个box
+    for i in range(cxcy.size()[0]):
+        cxcy_sample = cxcy[i]
+        # 计算属于格子的第几行第几列(向上取整但还要减一，实际就是1.5对应1-向上为2，再减1到1)
+        ij = (cxcy_sample / cell_size).ceil() - 1
+        # B1、B2、C 标记为1
+        target[int(ij[1]), int(ij[0]), 4] = 1
+        target[int(ij[1]), int(ij[0]), 9] = 1
+        # int(labels[i]) + 10
+        target[int(ij[1]), int(ij[0]), int(labels[i]) + 10] = 1
+        # 匹配到的网格的左上角相对坐标
+        xy = ij * cell_size
+        # 真框相对于格子坐上角的偏移量
+        # (box的中心坐标存储是相当目标中心所在格点的左上角的偏移量)
+        delta_xy = (cxcy_sample - xy) / cell_size
+        target[int(ij[1]), int(ij[0]), 2:4] = wh[i]
+        target[int(ij[1]), int(ij[0]), :2] = delta_xy
+        target[int(ij[1]), int(ij[0]), 7:9] = wh[i]
+        target[int(ij[1]), int(ij[0]), 5:7] = delta_xy
+
+    return target
+
+
+def detection_collate(batch):
+    """Custom collate fn for dealing with batches of images that have a different
+    number of associated object annotations (bounding boxes).-如何把多个sample打包成batch的函数
+
+    Arguments:
+        batch: (tuple) A tuple of tensor images and lists of annotations
+
+    Return:
+        imgs: tensor [batch_size, 3, 448, 448]
+        boxes: list of tensor:[, 4] for (x1, y1, x2, y2)
+        labels: list of LongTensor:[,1]
+        gt_outs: the ground truth outputs of model
+    """
+    imgs = []
+    boxes, labels, gt_outs = [], [], []
+    for sample in batch:
+        # sample[0]:[3,h,w], sample[1]:[, 5]
+        imgs.append(sample[0])
+        # print(sample[1].shape, sample[1])
+        # 下面两组都可以使用torch.tensor(data, dtype=None, device=None, requires_grad=False)替换
+        # box = torch.tensor(data=[i[:4] for i in sample[1]], dtype=torch.float32)
+        box = torch.FloatTensor([i[:4] for i in sample[1]])
+        # label = torch.LongTensor(data=[i[4] for i in sample[1]], dtype=torch.long)
+        label = torch.LongTensor([i[4] for i in sample[1]])
+
+        boxes.append(box)
+        labels.append(label)
+        # 对boxes和label在网格上编码(即将每个网格赋值)
+        gt_outs.append(gt_data_encoder(box, label))
+
+    # print(f'boxes:{boxes}\n, labels:{labels}')
+
+    return torch.stack(imgs, 0), boxes, labels, torch.stack(gt_outs, 0)
+
+
 if __name__ == "__main__":
     from src.tool.image_augmentations import CustomCompose, DistortionLessResize
     transforms_composed = CustomCompose([DistortionLessResize(max_width=448)])
     data_root = "../../data/pascalvoc/VOCdevkit"
     dataset = PascalVocDataset(data_path_root=data_root, transform=transforms_composed)
-    test = dataset[1]
+    test = dataset[2]
 
     cv2.destroyAllWindows()
     pass
