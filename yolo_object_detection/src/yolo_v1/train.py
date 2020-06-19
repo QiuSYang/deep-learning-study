@@ -6,13 +6,17 @@ import argparse
 import logging
 
 logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
-                    datefmt='%a, %d %b %Y %H:%M:%S')
+                    format='%(asctime)s - %(filename)s - %(levelname)s - %(message)s',
+                    datefmt='%m/%d/%Y %H:%M:%S')
 _logger = logging.getLogger(__name__)
 
 
 class Yolov1Train(object):
-    pass
+    def __init__(self):
+        pass
+
+    def train(self):
+        pass
 
 
 if __name__ == "__main__":
