@@ -40,7 +40,43 @@ class YoloV1Train(object):
                                       gamma=self.args.step_lr_gamma,
                                       warm_up_factor=self.args.warm_up_factor,
                                       warm_up_iters=self.args.warm_up_num_iters)
-        step = model.load_model()
+        step = model.load_model(self.args.model_dir_path,
+                                self.args.model_file_name,
+                                optimizer=optimizer,
+                                lr_scheduler=scheduler)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model.to(device)
+        model.train()
+
+        criterion = YoloV1Loss()
+        while step < self.args.num_steps_to_finish:
+            data_loader = self.get_data_loader()
+            start_time = time.perf_counter()
+            for i, (images, gt_boxes, get_labels, gt_outs) in enumerate(data_loader):
+                # images - batch image data, gt_boxes - batch gt boxes,
+                # get_labels - batch gt labels, gt_outs - encoder batch gt model out, 即yolo最后输出的标签
+                step += 1
+                scheduler.step()
+                images = images.to(device)
+                gt_outs = gt_outs.to(device)
+
+                predict_outs = model(images)
+                # 计算损失，反向传播训练模型
+                loss = criterion(predict_outs, gt_outs)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                end_time = time.perf_counter()
+                _logger.info("step: {}, loss: {:.8f}, time: {:.4f}".format(step, loss.item(), end_time-start_time))
+                start_time = time.perf_counter()
+                if step is not 0 and step % self.args.save_step is 0:
+                    # 固定步长保存模型
+                    model.save_model(self.args.model_dir_path,
+                                     self.args.model_file_name,
+                                     step=step,
+                                     optimizer=optimizer,
+                                     lr_scheduler=scheduler)
 
         return model
 
