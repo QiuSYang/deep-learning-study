@@ -6,6 +6,7 @@ import logging
 import cv2
 import numpy as np
 from scipy import ndimage
+import torch
 from torchvision import transforms
 
 _logger = logging.getLogger(__name__)
@@ -30,6 +31,26 @@ class CustomCompose(transforms.Compose):
         for t in self.transforms:
             img, boxes, labels = t(img, boxes, labels)
         return img, boxes, labels
+
+
+class CustomImageNormalize(object):
+    """图像数据读取归一化
+    .. note::
+        This transform acts out of place, i.e., it does not mutate the input tensor.
+
+    Args:
+        mean (sequence): Sequence of means for each channel.
+        std (sequence): Sequence of standard deviations for each channel.
+        inplace(bool,optional): Bool to make this operation in-place."""
+    def __init__(self):
+        pass
+
+    def __call__(self, image, gt_bbox=None, label=None):
+        if image.dtype is not np.float:
+            image = image.astype(np.float32)
+        image = (image - np.min(image)) / (np.max(image) - np.min(image))
+
+        return image, gt_bbox, label
 
 
 class DistortionLessResize(object):

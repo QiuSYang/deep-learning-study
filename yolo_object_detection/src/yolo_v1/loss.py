@@ -18,10 +18,9 @@ class YoloV1Loss(nn.Module):
         super(YoloV1Loss, self).__init__()
         self.s = s  # 正方形网格数
         self.b = b  # 每个格的预测框数
-        self.l_coored = l_coord  # 损失函数坐标回归权重
-        self.l_boobj = l_noobj  # 损失函数类别分类权重
+        self.l_coord = l_coord  # 损失函数坐标回归权重
+        self.l_noobj = l_noobj  # 损失函数类别分类权重
         self.device = device
-        pass
 
     def forward(self, predict_tensor, target_tensor):
         """
@@ -77,12 +76,12 @@ class YoloV1Loss(nn.Module):
             box1 = box_pred[i:i + 2]
             box1_xyxy = torch.FloatTensor(box1.size())
             # (x,y,w,h)
-            box1_xyxy[:, :2] = box1[:, :2] / self.S - 0.5 * box1[:, 2:4]
-            box1_xyxy[:, 2:4] = box1[:, :2] / self.S + 0.5 * box1[:, 2:4]
+            box1_xyxy[:, :2] = box1[:, :2] / self.s - 0.5 * box1[:, 2:4]
+            box1_xyxy[:, 2:4] = box1[:, :2] / self.s + 0.5 * box1[:, 2:4]
             box2 = box_target[i].view(-1, 5)
             box2_xyxy = torch.FloatTensor(box2.size())
-            box2_xyxy[:, :2] = box2[:, :2] / self.S - 0.5 * box2[:, 2:4]
-            box2_xyxy[:, 2:4] = box2[:, :2] / self.S + 0.5 * box2[:, 2:4]
+            box2_xyxy[:, :2] = box2[:, :2] / self.s - 0.5 * box2[:, 2:4]
+            box2_xyxy[:, 2:4] = box2[:, :2] / self.s + 0.5 * box2[:, 2:4]
             # iou(pred_box[2,], target_box[2,])
             iou = self.compute_iou(box1_xyxy[:, :4], box2_xyxy[:, :4])
             # target匹配到的box

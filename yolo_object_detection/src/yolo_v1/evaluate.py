@@ -1,5 +1,6 @@
 """
-# 用于YOLO-V1 model 评测
+# 用于YOLO-V1 model 评测, 采用MmAP指标
+# 看是否可以借鉴COCO的API进行评测
 """
 import os
 import logging
@@ -7,13 +8,13 @@ import argparse
 import torch
 from torch.utils import data
 
-from src.tool.image_augmentations import CustomCompose, DistortionLessResize
+from src.tool.image_augmentations import CustomCompose, CustomImageNormalize, DistortionLessResize
 from src.datasets.pascalvoc_dataset import PascalVocDataset, detection_collate
 
 _logger = logging.getLogger(__name__)
 
 
-class YoloV1Test(object):
+class YoloV1Evaluate(object):
     def __init__(self, args):
         self.args = args
 
@@ -28,7 +29,8 @@ class YoloV1Test(object):
         dataset = PascalVocDataset(data_path_root=self.args.voc_data_set_root,
                                    image_sets=image_sets,
                                    transform=CustomCompose(
-                                       [DistortionLessResize(max_width=self.args.max_image_size)]))
+                                       [CustomImageNormalize(),
+                                        DistortionLessResize(max_width=self.args.max_image_size)]))
 
         return data.DataLoader(dataset,
                                batch_size=self.args.batch_size,

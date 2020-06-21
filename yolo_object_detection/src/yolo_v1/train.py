@@ -14,7 +14,7 @@ from src.yolo_v1.loss import YoloV1Loss
 from src.yolo_v1.custom_lr_scheduler import WarmUpMultiStepLR
 from src.yolo_v1.config import YoloV1Config
 from src.datasets.pascalvoc_dataset import VOC_CLASSES
-from src.tool.image_augmentations import CustomCompose, DistortionLessResize
+from src.tool.image_augmentations import CustomCompose, CustomImageNormalize, DistortionLessResize
 from src.datasets.pascalvoc_dataset import PascalVocDataset, detection_collate
 
 logging.basicConfig(level=logging.DEBUG,
@@ -35,7 +35,9 @@ class YoloV1Train(object):
         :return:
         """
         # 设置模型
-        model = YoloV1Net(num_classes=self.config.CLASSES_NUM)
+        model = YoloV1Net(s=self.config.GRID_NUM,
+                          b=self.config.ANCHOR_NUM,
+                          num_classes=self.config.CLASSES_NUM)
         # 设置优化器
         optimizer = optim.SGD(model.parameters(),
                               lr=self.config.LEARNING_RATE,
@@ -70,14 +72,17 @@ class YoloV1Train(object):
                                l_coord=self.config.L_COORD,
                                l_noobj=self.config.L_NOOBJ,
                                device=self.config.DEVICE)
-        while step < self.config.NUM_STEPS_TO_FINISH:
+        # 训练开始
+        if self.args.steps is 0:
+            self.args.steps = self.config.NUM_STEPS_TO_FINISH
+        while step < self.args.steps:
             data_loader = self.get_data_loader()
             start_time = time.perf_counter()
             for i, (images, gt_boxes, get_labels, gt_outs) in enumerate(data_loader):
                 # images - batch image data, gt_boxes - batch gt boxes,
                 # get_labels - batch gt labels, gt_outs - encoder batch gt model out, 即yolo最后输出的标签
                 step += 1
-                scheduler.step()
+                # scheduler.step()
                 images = images.to(self.config.DEVICE)
                 gt_outs = gt_outs.to(self.config.DEVICE)
 
@@ -86,7 +91,9 @@ class YoloV1Train(object):
                 loss = criterion(predict_outs, gt_outs)
                 optimizer.zero_grad()
                 loss.backward()
+
                 optimizer.step()
+                scheduler.step()
 
                 end_time = time.perf_counter()
                 _logger.info("step: {}, loss: {:.8f}, time: {:.4f}".format(step, loss.item(),
@@ -125,7 +132,8 @@ class YoloV1Train(object):
         dataset = PascalVocDataset(data_path_root=self.args.voc_data_set_root,
                                    image_sets=image_sets,
                                    transform=CustomCompose(
-                                       [DistortionLessResize(max_width=self.args.image_max_size)]))
+                                       [CustomImageNormalize(),
+                                        DistortionLessResize(max_width=self.args.image_max_size)]))
 
         return data.DataLoader(dataset,
                                batch_size=self.args.batch_size,
@@ -162,6 +170,9 @@ if __name__ == "__main__":
     parser.add_argument('-i_m_s', '--image_max_size',
                         default=448, type=int,
                         help='image max size, image resize max size.')
+    parser.add_argument('-s', '--steps',
+                        default=0, type=int,
+                        help='the training steps, steps = epochs * (image_numbers / batch_size)')
 
     args = parser.parse_args()
 
