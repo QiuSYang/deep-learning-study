@@ -26,7 +26,7 @@ _logger = logging.getLogger(__name__)
 class YoloV1Train(object):
     def __init__(self, args):
         self.args = args
-        self.config = YoloV1Config(dataset_classes_num=len(len(VOC_CLASSES)))
+        self.config = YoloV1Config(dataset_classes_num=len(VOC_CLASSES))
         # 显示超参数
         self.config.display()
 
@@ -46,15 +46,30 @@ class YoloV1Train(object):
                                       gamma=self.config.STEP_LR_GAMMA,
                                       warm_up_factor=self.config.WARM_UP_FACTOR,
                                       warm_up_iters=self.config.WARM_UP_NUM_ITERS)
+
         step = model.load_model(self.args.model_dir_path,
                                 self.args.model_file_name,
                                 optimizer=optimizer,
                                 lr_scheduler=scheduler)
+        # step = 0
+        # if os.path.exists(os.path.join(self.args.model_dir_path,
+        #                                '.pkl'.format(self.args.model_file_name))):
+        #     # 已有之前的模型路径，加载模型
+        #     step = model.load_model(self.args.model_dir_path,
+        #                             self.args.model_file_name,
+        #                             optimizer=optimizer,
+        #                             lr_scheduler=scheduler)
+
         # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model.to(self.config.DEVICE)
         model.train()
 
-        criterion = YoloV1Loss()
+        # 设置损失函数
+        criterion = YoloV1Loss(s=self.config.GRID_NUM,
+                               b=self.config.ANCHOR_NUM,
+                               l_coord=self.config.L_COORD,
+                               l_noobj=self.config.L_NOOBJ,
+                               device=self.config.DEVICE)
         while step < self.config.NUM_STEPS_TO_FINISH:
             data_loader = self.get_data_loader()
             start_time = time.perf_counter()
@@ -110,7 +125,7 @@ class YoloV1Train(object):
         dataset = PascalVocDataset(data_path_root=self.args.voc_data_set_root,
                                    image_sets=image_sets,
                                    transform=CustomCompose(
-                                       [DistortionLessResize(max_width=self.args.max_image_size)]))
+                                       [DistortionLessResize(max_width=self.args.image_max_size)]))
 
         return data.DataLoader(dataset,
                                batch_size=self.args.batch_size,
@@ -123,8 +138,35 @@ class YoloV1Train(object):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Single Shot MultiBox Detector '
                                                  'Training With Pytorch - YOLOV1')
-    # parser.add_argument()
+    parser.add_argument('-data_set', '--voc_data_set_root',
+                        default='../../data/pascalvoc/VOCdevkit',
+                        type=str,
+                        help='data set root directory path.')
+    parser.add_argument('-m_d_p', '--model_dir_path',
+                        default='../../model/yolo_v1',
+                        type=str,
+                        help='yolo-v1 model saving directory path.')
+    parser.add_argument('-m_f_n', '--model_file_name',
+                        default='{}_model'.format(str(time.strftime('%y%m%d', time.localtime(time.time())))),
+                        type=str,
+                        help='yolo-v1 model saving file name.')
+    parser.add_argument('-b_s', '--batch_size',
+                        default=2, type=int,
+                        help='batch size for training')
+    parser.add_argument('-n_w', '--num_workers',
+                        default=0, type=int,
+                        help='number of workers used in data loading.')
+    parser.add_argument('-s_s', '--save_step',
+                        default=100, type=int,
+                        help='directory for saving checkpoint models.')
+    parser.add_argument('-i_m_s', '--image_max_size',
+                        default=448, type=int,
+                        help='image max size, image resize max size.')
 
     args = parser.parse_args()
 
     _logger.info("all the super parameters are loaded.")
+
+    yolo_train = YoloV1Train(args=args)
+
+    model = yolo_train.train()

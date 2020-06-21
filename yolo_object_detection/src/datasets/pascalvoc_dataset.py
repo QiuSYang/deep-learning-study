@@ -10,6 +10,8 @@ import torch
 import torch.utils.data as data
 import xml.etree.ElementTree as ET
 
+from src.yolo_v1.config import YoloV1Config
+
 _logger = logging.getLogger(__name__)
 
 VOC_CLASSES = (  # always index 0
@@ -185,9 +187,10 @@ class PascalVocDataset(data.Dataset):
             # self.image_show(img, target)
 
         # scale height or width([xmin, ymin, xmax, ymax, label_idx])-归一化
-        for i in range(len(target[:4])):
+        # print(len(target[0, :4]))
+        for i in range(len(target[0, :4])):
             if i % 2 == 0:
-                target[:, i] = target[:, i]/float(img.shape[1])
+                target[:, i] = target[:, i] / float(img.shape[1])
             else:
                 target[:, i] = target[:, i] / float(img.shape[0])
 
@@ -269,7 +272,7 @@ class PascalVocDataset(data.Dataset):
         cv2.waitKey()
 
 
-def gt_data_encoder(boxes, labels, grid_num=7):
+def gt_data_encoder(boxes, labels, grid_num=YoloV1Config.GRID_NUM):
     """ yolo-v1 gt bbox 编码，变为[[30 length tensor]]
     boxes (tensor) [[x1,y1,x2,y2],[]]
     labels (tensor) [...]

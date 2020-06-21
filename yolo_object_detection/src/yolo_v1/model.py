@@ -39,6 +39,7 @@ class BasicBlock(nn.Module):
                  stride1=1, stride2=1,
                  padding1=0, padding2=0,
                  units=1):
+        super(BasicBlock, self).__init__()
         self.conv_1 = ConvBNLeakyRelu(input_channels, output_channels_middle,
                                       kernel_size=kernel_size1, stride=stride1, padding=padding1)
         self.conv_2 = ConvBNLeakyRelu(output_channels_middle, output_channels,
