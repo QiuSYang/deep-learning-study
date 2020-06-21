@@ -203,7 +203,7 @@ class YoloV1Net(nn.Module):
                 temp = torch.load(os.path.join(model_dir_path, '{}_para.pkl'.format(model_file_name)),
                                   map_location='cpu')
                 lr_scheduler.load_state_dict(temp.get('lr_scheduler'))
-                optimizer.load_state_dict(temp.get('optimizer'))
+                # optimizer.load_state_dict(temp.get('optimizer'))
                 step = temp.get('step')
                 _logger.info("loading optimizer, lr_scheduler and step successfully.")
 
@@ -228,11 +228,13 @@ class YoloV1Net(nn.Module):
             _logger.info("dir not exit, create one.")
         save_path = os.path.join(dir_path, file_name)
         if os.path.exists(save_path):
-            # 文件已经存在, 先保存到临时文件,
-            # 之后先删除之前的文件, 再将临时文件重命名为目标文件
-            temp_name = '{}.temp'.format(save_path)
-            torch.save(state_dict, temp_name)
+            # 删除已经存在model文件
             os.remove(save_path)
+            # 创建临时文件名
+            temp_name = '{}.temp'.format(save_path)
+            # 保存临时文件
+            torch.save(state_dict, temp_name)
+            # 将临时文件重命名
             os.rename(temp_name, save_path)
             _logger.info("find the file conflict while saving, saved safely.")
         else:
