@@ -8,10 +8,14 @@ import time
 import torch
 from torch.utils import data
 from torch import optim
+
 from src.yolo_v1.model import YoloV1Net
 from src.yolo_v1.loss import YoloV1Loss
 from src.yolo_v1.custom_lr_scheduler import WarmUpMultiStepLR
+from src.yolo_v1.config import YoloV1Config
 from src.datasets.pascalvoc_dataset import VOC_CLASSES
+from src.tool.image_augmentations import CustomCompose, DistortionLessResize
+from src.datasets.pascalvoc_dataset import PascalVocDataset, detection_collate
 
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s - %(filename)s - %(levelname)s - %(message)s',
@@ -22,34 +26,36 @@ _logger = logging.getLogger(__name__)
 class YoloV1Train(object):
     def __init__(self, args):
         self.args = args
-        pass
+        self.config = YoloV1Config(dataset_classes_num=len(len(VOC_CLASSES)))
+        # 显示超参数
+        self.config.display()
 
     def train(self):
         """ 训练模型
         :return:
         """
         # 设置模型
-        model = YoloV1Net(num_classes=len(VOC_CLASSES))
+        model = YoloV1Net(num_classes=self.config.CLASSES_NUM)
         # 设置优化器
         optimizer = optim.SGD(model.parameters(),
-                              lr=self.args.learning_rate,
-                              momentum=self.args.momentum,
-                              weight_decay=self.args.weight_decay)
+                              lr=self.config.LEARNING_RATE,
+                              momentum=self.config.MOMENTUM,
+                              weight_decay=self.config.WEIGHT_DECAY)
         scheduler = WarmUpMultiStepLR(optimizer,
-                                      milestones=self.args.step_lr_sizes,
-                                      gamma=self.args.step_lr_gamma,
-                                      warm_up_factor=self.args.warm_up_factor,
-                                      warm_up_iters=self.args.warm_up_num_iters)
+                                      milestones=self.config.STEP_LR_SIZES,
+                                      gamma=self.config.STEP_LR_GAMMA,
+                                      warm_up_factor=self.config.WARM_UP_FACTOR,
+                                      warm_up_iters=self.config.WARM_UP_NUM_ITERS)
         step = model.load_model(self.args.model_dir_path,
                                 self.args.model_file_name,
                                 optimizer=optimizer,
                                 lr_scheduler=scheduler)
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        model.to(device)
+        # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model.to(self.config.DEVICE)
         model.train()
 
         criterion = YoloV1Loss()
-        while step < self.args.num_steps_to_finish:
+        while step < self.config.NUM_STEPS_TO_FINISH:
             data_loader = self.get_data_loader()
             start_time = time.perf_counter()
             for i, (images, gt_boxes, get_labels, gt_outs) in enumerate(data_loader):
@@ -57,8 +63,8 @@ class YoloV1Train(object):
                 # get_labels - batch gt labels, gt_outs - encoder batch gt model out, 即yolo最后输出的标签
                 step += 1
                 scheduler.step()
-                images = images.to(device)
-                gt_outs = gt_outs.to(device)
+                images = images.to(self.config.DEVICE)
+                gt_outs = gt_outs.to(self.config.DEVICE)
 
                 predict_outs = model(images)
                 # 计算损失，反向传播训练模型
@@ -68,7 +74,8 @@ class YoloV1Train(object):
                 optimizer.step()
 
                 end_time = time.perf_counter()
-                _logger.info("step: {}, loss: {:.8f}, time: {:.4f}".format(step, loss.item(), end_time-start_time))
+                _logger.info("step: {}, loss: {:.8f}, time: {:.4f}".format(step, loss.item(),
+                                                                           end_time-start_time))
                 start_time = time.perf_counter()
                 if step is not 0 and step % self.args.save_step is 0:
                     # 固定步长保存模型
@@ -99,9 +106,6 @@ class YoloV1Train(object):
                 image_sets = (('2007test', 'test'),)
             elif year == '2012':
                 image_sets = (('2012test', 'test'),)
-
-        from src.tool.image_augmentations import CustomCompose, DistortionLessResize
-        from src.datasets.pascalvoc_dataset import PascalVocDataset, detection_collate
 
         dataset = PascalVocDataset(data_path_root=self.args.voc_data_set_root,
                                    image_sets=image_sets,
