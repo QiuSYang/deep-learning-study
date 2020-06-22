@@ -263,7 +263,7 @@ class YoloV1Predict(object):
         # 扩围[batch_size, C, H, W]
         image_tensor = image_tensor.unsqueeze(0)
 
-        return image_tensor, image
+        return image_tensor, image_resize
 
     def predict_one_image(self, image_path, model):
         image_tensor, image = self.image_to_tensor_batch(image_path=image_path)
