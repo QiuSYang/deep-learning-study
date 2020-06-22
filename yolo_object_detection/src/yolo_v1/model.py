@@ -228,14 +228,18 @@ class YoloV1Net(nn.Module):
             _logger.info("dir not exit, create one.")
         save_path = os.path.join(dir_path, file_name)
         if os.path.exists(save_path):
-            # 删除已经存在model文件
+            # # 创建临时文件名
+            # temp_name = '{}.temp'.format(save_path)
+            # # 保存临时文件
+            # torch.save(state_dict, temp_name)
+            # # 删除已经存在model文件
+            # os.remove(save_path)
+            # # 将临时文件重命名
+            # os.rename(temp_name, save_path)
+
+            # 删除已经存在model文件(直接删除原文件, 保存同样名字的新文件)
             os.remove(save_path)
-            # 创建临时文件名
-            temp_name = '{}.temp'.format(save_path)
-            # 保存临时文件
-            torch.save(state_dict, temp_name)
-            # 将临时文件重命名
-            os.rename(temp_name, save_path)
+            torch.save(state_dict, save_path)
             _logger.info("find the file conflict while saving, saved safely.")
         else:
             torch.save(state_dict, save_path)
