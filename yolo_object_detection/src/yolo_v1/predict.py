@@ -14,6 +14,9 @@ from src.yolo_v1.model import YoloV1Net
 from src.tool.image_augmentations import CustomImageNormalize
 from src.yolo_v1.config import YoloV1Config
 
+logging.basicConfig(level=logging.DEBUG,
+                    format='%(asctime)s - %(filename)s - %(levelname)s - %(message)s',
+                    datefmt='%m/%d/%Y %H:%M:%S')
 _logger = logging.getLogger(__name__)
 
 
@@ -255,8 +258,10 @@ class YoloV1Predict(object):
         image = cv2.imread(image_path)
         image_resize = self.resize_image(image, size=self.size)
         normalize = CustomImageNormalize()
-        image_normalize = normalize(image_resize)
+        image_normalize, _, _ = normalize(image_resize)
         image_tensor = torch.from_numpy(image_normalize).permute(2, 0, 1)
+        # 扩围[batch_size, C, H, W]
+        image_tensor = image_tensor.unsqueeze(0)
 
         return image_tensor, image
 
@@ -269,4 +274,15 @@ class YoloV1Predict(object):
 
 
 if __name__ == "__main__":
-    pass
+    model = YoloV1Net(s=YoloV1Config.GRID_NUM,
+                      b=YoloV1Config.ANCHOR_NUM,
+                      num_classes=len(VOC_CLASSES))
+    model_file_dir = "../../model/yolo_v1"
+    model_file_name = "200622_model"
+    model.load_model(model_dir_path=model_file_dir, model_file_name=model_file_name)
+
+    image_file_path = "../../data/pascalvoc/VOCdevkit/VOC2007/JPEGImages/000288.jpg"
+
+    yolo_predict = YoloV1Predict()
+    yolo_predict.predict_one_image(image_path=image_file_path, model=model)
+
