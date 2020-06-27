@@ -1,4 +1,4 @@
-# DeepLearningStudy_YQS
+# deep-learning-study
 this project is used for deep learning.
 
 Several objectives：
