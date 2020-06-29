@@ -75,6 +75,8 @@ class YoloV1Train(object):
         # 训练开始
         if self.args.steps is 0:
             self.args.steps = self.config.NUM_STEPS_TO_FINISH
+
+        _logger.info("start step is {}.".format(step))
         while step < self.args.steps:
             data_loader = self.get_data_loader()
             start_time = time.perf_counter()
