@@ -186,7 +186,7 @@ class PascalVocDataset(data.Dataset):
             # # 调试使用，显示变换后的图像
             # self.image_show(img, target)
 
-        # scale height or width([xmin, ymin, xmax, ymax, label_idx])-归一化
+        # scale height or width([xmin, ymin, xmax, ymax, label_idx])->归一化操作
         # print(len(target[0, :4]))
         for i in range(len(target[0, :4])):
             if i % 2 == 0:

@@ -35,17 +35,17 @@ class YoloV1Loss(nn.Module):
         """
         N = predict_tensor.size()[0]
 
-        # 具有目标标签的索引
-        coo_mask = target_tensor[:, :, :, 4] > 0
+        # 具有目标标签的索引(bs, 7, 7, 30)中7*7方格中的哪个方格包含目标
+        coo_mask = target_tensor[:, :, :, 4] > 0  # coo_mask.shape = (bs, 7, 7)
         # 不具有目标的标签索引
         noo_mask = target_tensor[:, :, :, 4] == 0
 
-        # 得到含物体的坐标等信息
+        # 得到含物体的坐标等信息(coo_mask扩充到与target_tensor一样形状, 沿最后一维扩充)
         coo_mask = coo_mask.unsqueeze(-1).expand_as(target_tensor)
         # 得到不含物体的坐标等信息
         noo_mask = noo_mask.unsqueeze(-1).expand_as(target_tensor)
 
-        # coo_pred：tensor[, 30]
+        # coo_pred：tensor[, 30](所有batch数据都压缩在一起)
         coo_pred = predict_tensor[coo_mask].view(-1, 30)
         # box[x1,y1,w1,h1,c1], [x2,y2,w2,h2,c2]
         box_pred = coo_pred[:, :10].contiguous().view(-1, 5)
@@ -64,6 +64,8 @@ class YoloV1Loss(nn.Module):
         noo_pred_mask.zero_()
         noo_pred_mask[:, 4] = 1
         noo_pred_mask[:, 9] = 1
+
+        # 获取不包含目标框的置信度值
         noo_pred_c = noo_pred[noo_pred_mask]
         noo_target_c = noo_target[noo_pred_mask]
 
@@ -76,9 +78,10 @@ class YoloV1Loss(nn.Module):
         coo_not_response_mask = torch.ByteTensor(box_target.size()).to(self.device)
         coo_not_response_mask.zero_()
         box_target_iou = torch.zeros(box_target.size()).to(self.device)
-        # 从两个框中二选一
-        for i in range(0, box_target.size()[0], 2):  # choose the best iou box
-            box1 = box_pred[i:i + 2]
+        # 从两个gt bbox框中二选一(同一个格点的两个gt bbox是一样的)
+        for i in range(0, box_target.size()[0], 2):
+            # choose the best iou box
+            box1 = box_pred[i:i + self.b]  # 获取当前格点预测的b个box
             box1_xyxy = torch.FloatTensor(box1.size())
             # (x,y,w,h)
             box1_xyxy[:, :2] = box1[:, :2] / self.s - 0.5 * box1[:, 2:4]
@@ -89,7 +92,7 @@ class YoloV1Loss(nn.Module):
             box2_xyxy[:, 2:4] = box2[:, :2] / self.s + 0.5 * box2[:, 2:4]
             # iou(pred_box[2,], target_box[2,])
             iou = self.compute_iou(box1_xyxy[:, :4], box2_xyxy[:, :4])
-            # target匹配到的box
+            # target匹配到的box, 在self.b个预测box中获取与target box iou 值最大的那个的索引
             max_iou, max_index = iou.max(0)
             _logger.info("max_iou: {}, max_index:{}".format(max_iou, max_index))
             max_index = max_index.to(self.device)
@@ -99,29 +102,38 @@ class YoloV1Loss(nn.Module):
             '''we want the confidence score to equal the
             intersection over union (IOU) between the predicted box
             and the ground truth'''
+            # iou value 作为box包含目标的confidence(赋值在向量的第五个位置)
             box_target_iou[i + max_index, torch.LongTensor([4]).to(self.device)] = max_iou.to(self.device)
 
         box_target_iou = box_target_iou.to(self.device)
         # 1.response loss
+        # temp = box_pred[coo_response_mask]
+        # box_pred[coo_response_mask]将coo_response_mask对应值为1的索引在box_pred的值取出组成一维向量
         box_pred_response = box_pred[coo_response_mask].view(-1, 5)
         box_target_response_iou = box_target_iou[coo_response_mask].view(-1, 5)
         box_target_response = box_target[coo_response_mask].view(-1, 5)
 
+        # 包含目标格点上包含目标box confidence的损失
         contain_loss = F.mse_loss(box_pred_response[:, 4], box_target_response_iou[:, 4], reduction='sum')
 
-        loc_loss = F.mse_loss(box_pred_response[:, :2], box_target_response[:, :2], reduction='sum') + F.mse_loss(
-            torch.sqrt(box_pred_response[:, 2:4]), torch.sqrt(box_target_response[:, 2:4]), reduction='sum')
+        # 包含目标box的损失
+        loc_loss = (F.mse_loss(box_pred_response[:, :2],
+                               box_target_response[:, :2],
+                               reduction='sum') +
+                    F.mse_loss(torch.sqrt(box_pred_response[:, 2:4]),
+                               torch.sqrt(box_target_response[:, 2:4]),
+                               reduction='sum'))
 
         # 2.not response loss
         box_pred_not_response = box_pred[coo_not_response_mask].view(-1, 5)
         box_target_not_response = box_target[coo_not_response_mask].view(-1, 5)
         box_target_not_response[:, 4] = 0
-        # not_contain_loss = F.mse_loss(box_pred_response[:,4],box_target_response[:,4],size_average=False)
+        # not_contain_loss = F.mse_loss(box_pred_response[:,4], box_target_response[:,4], size_average=False)
 
-        # I believe this bug is simply a typo
+        # I believe this bug is simply a typo(包含目标格点上不包含目标的box confidence的损失)
         not_contain_loss = F.mse_loss(box_pred_not_response[:, 4], box_target_not_response[:, 4], reduction='sum')
 
-        # 3.class loss
+        # 3.class loss(分类损失)
         class_loss = F.mse_loss(class_pred, class_target, reduction='sum')
 
         return (self.l_coord * loc_loss + 2 * contain_loss +
