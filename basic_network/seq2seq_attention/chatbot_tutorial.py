@@ -4,6 +4,7 @@
 Chatbot Tutorial
 ================
 **Author:** `Matthew Inkawhich <https://github.com/MatthewInkawhich>`_
+*参考链接*：https://pytorch.org/tutorials/beginner/chatbot_tutorial.html#decoder
 """
 
 ######################################################################
