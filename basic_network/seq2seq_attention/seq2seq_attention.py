@@ -103,6 +103,9 @@ class AttnDecoderRNN(nn.Module):
         self.dropout = nn.Dropout(self.dropout_p)
         self.gru = nn.GRU(self.hidden_size, self.hidden_size)
 
+        # self.attn = nn.Linear(self.hidden_size * 2, self.max_length)
+        # self.attn_combine = nn.Linear(self.hidden_size * 2, self.hidden_size)
+
         self.attn = CustomAttention('general', self.hidden_size)
         self.concat = nn.Linear(hidden_size * 2, hidden_size)
         self.out = nn.Linear(self.hidden_size, self.output_size)
@@ -111,8 +114,13 @@ class AttnDecoderRNN(nn.Module):
         temp = self.embedding(input)
         embedded = self.embedding(input).view(1, 1, -1)
         embedded = self.dropout(embedded)
+        embedded_temp = embedded[0]
+        hidden_temp = hidden[0]
 
         """ 先进行attention运算, 使用decoder embedding与encoder all hidden进行运算
+        # embedded[0], hidden[0]应该是场景决定, 
+        # 实际就是decoder token embedding直接跟encoder last hidden计算出attention weight, 
+        # 之后再使用权重*所有token hidden, 计算出每个token的影响
         attn_weights = F.softmax(
             self.attn(torch.cat((embedded[0], hidden[0]), 1)), dim=1)
         attn_applied = torch.bmm(attn_weights.unsqueeze(0),
