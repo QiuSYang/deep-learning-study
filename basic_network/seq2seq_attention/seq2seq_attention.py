@@ -116,6 +116,7 @@ class AttnDecoderRNN(nn.Module):
         embedded = self.dropout(embedded)
         embedded_temp = embedded[0]
         hidden_temp = hidden[0]
+        cat_temp = torch.cat((embedded[0], hidden[0]), 1)
 
         """ 先进行attention运算, 使用decoder embedding与encoder all hidden进行运算
         # embedded[0], hidden[0]应该是场景决定, 
