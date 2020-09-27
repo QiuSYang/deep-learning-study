@@ -1,0 +1,5 @@
+# ignore idea configuration
+.idea/
+./basic_network/.idea/
+./basic_network/seq2seq_attention/.idea/
+./basic_network/GAN/.idea/
