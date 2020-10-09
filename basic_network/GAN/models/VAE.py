@@ -48,6 +48,7 @@ class LinearVAE(tf.keras.Model):
             en_fc_3_output = en_fc_3_output - 1
         # NO activation(mean_output size: en_fc_3_output//2, logvar size: en_fc_3_output//2)
         self.encoder_fc_3 = layers.Dense(units=en_fc_3_output,
+                                         activation='relu',
                                          name='encoder_dense_layer_3')
 
         # generate encoder
@@ -69,8 +70,8 @@ class LinearVAE(tf.keras.Model):
         # 待转换向量A多添加一层编码层, 将编码最后输出维度与B向量编码输出mean shape一致(是否需要添加激活层有待考虑)
         generate_en_fc_4_output = generate_en_fc_3_output // 2
         self.generate_en_fc_4 = layers.Dense(units=generate_en_fc_4_output,
-                                             activation=None,
-                                             name='generate_en_dense_layer_3')
+                                             activation='relu',
+                                             name='generate_en_dense_layer_4')
 
         # generate decoder
         generate_de_fc_1_output = generate_en_fc_4_output * 2  # generate_en_fc_3_output
@@ -80,19 +81,19 @@ class LinearVAE(tf.keras.Model):
         generate_de_fc_2_output = generate_de_fc_1_output * 2  # generate_en_fc_2_output
         self.generate_de_fc_2 = layers.Dense(units=generate_de_fc_2_output,
                                              activation='relu',
-                                             name='generate_de_dense_layer_1')
+                                             name='generate_de_dense_layer_2')
         generate_de_fc_3_output = generate_de_fc_2_output * 2  # generate_en_fc_1_output
         self.generate_de_fc_3 = layers.Dense(units=generate_de_fc_3_output,
                                              activation='relu',
-                                             name='generate_de_dense_layer_1')
+                                             name='generate_de_dense_layer_3')
         generate_de_fc_4_output = self.feature_size  # 原始向量大小
         self.generate_de_fc_4 = layers.Dense(units=generate_de_fc_4_output,
-                                             name='generate_de_dense_layer_1')
+                                             name='generate_de_dense_layer_4')
 
     def reparameterize(self, eps, mean, logvar):
         """合并编码得到mean and var --- 重参数化"""
         # eps = tf.random.normal(shape=mean.shape)
-        return eps * tf.exp(logvar * 5) + mean
+        return eps * tf.exp(logvar * 0.5) + mean
 
     def encode(self, x):
         """编码, 通过训练得到标准集均值和方差"""
@@ -133,7 +134,7 @@ class LinearVAE(tf.keras.Model):
         if eps is None:
             eps = tf.random.normal(shape=(100, self.feature_size))
 
-        return self.decode(eps, apply_sigmoid=True)
+        return self.generate_decode(eps, apply_sigmoid=True)
 
     def call(self, z, x=None, apply_sigmoid=False):
         """ 流程函数

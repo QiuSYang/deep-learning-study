@@ -88,7 +88,7 @@ def download_evaluate_data():
     config["db"] = "jrtest"
     db = pymysql.connect(**config)
 
-    table = "jr_1w_pic_0220"
+    table = "jr_1w_pic_1210"
     limit = 20000
     data = get_data_from_table(db, table, limit)
 
@@ -104,12 +104,20 @@ def download_evaluate_data():
     features_1 = bytes_to_feature(features_1, 448, 384, with_decode=True)
     features_2 = bytes_to_feature(features_2, 448, 384, with_decode=True)
 
-    np.save("jr_1w_ID_0220.npy", features_1)
-    np.save("jr_1w_snap_0220.npy", features_2)
+    np.save("jr_1w_ID_1210.npy", features_1)
+    np.save("jr_1w_snap_1210.npy", features_2)
 
     logger.info("finish")
 
 
+def test():
+    root = "./"
+    file_name = root + "features_1.npy"
+    features = np.load(file_name)[-100000:]
+    np.save("jr_1w_neg_1210.npy", features)
+
+
 if __name__ == "__main__":
-    main()
-    # download_evaluate_data()
+    # main()
+    download_evaluate_data()
+    test()
