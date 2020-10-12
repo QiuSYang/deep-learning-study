@@ -34,15 +34,18 @@ class MainVAE(object):
         #     self.model = LinearVAE(feature_size=self.args.feature_size)
 
         self.model = LinearVAE(feature_size=self.args.feature_size)
-        if (self.args.model_dir and
-                os.path.exists(self.args.model_dir) and
-                os.listdir(self.args.model_dir)):
+        # if (self.args.model_dir and
+        #         os.path.exists(self.args.model_dir) and
+        #         os.listdir(self.args.model_dir)):
+        if self.args.model_path:
             # 导入已经trained模型
             try:
-                self.load_model(self.args.model_dir, self.args.model_name)
-            except OSError:
+                self.load_model(self.args.model_path)
+            except Exception as e:
                 # 模型load weight error
-                pass
+                logger.info("load model weights error.")
+                if args.inference:
+                    raise Exception("must load model weights success.")
 
         # 2. 设置训练必须参数
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=self.args.lr)
@@ -56,7 +59,7 @@ class MainVAE(object):
             logger.info("The {} epoch model training.".format(epoch))
             for batch_id, (transform_features, target_features) in enumerate(tqdm(train_data_generator, ncols=80)):
                 with tf.GradientTape() as tape:
-                    mean, logvar, eps, logit = self.model(transform_features, target_features)
+                    mean, logvar, eps, logit = self.model((transform_features, target_features))
                     loss = self.loss_function(eps, logits=logit, labels=target_features,
                                               means=mean, logvars=logvar)
                 # backward
@@ -69,7 +72,7 @@ class MainVAE(object):
             valid_loss = self.evaluate(vail_data_generator)
             if valid_loss < best_valid_loss:
                 logger.info("Save the best model: epoch is {}.".format(epoch))
-                self.save_model(self.args.model_dir, self.args.model_name)
+                self.save_model(self.args.model_path)
                 best_valid_loss = valid_loss
 
             if epoch % 1 == 0:
@@ -81,7 +84,7 @@ class MainVAE(object):
     def evaluate(self, vail_data_generator):
         """模型评估"""
         for batch_id, (transform_features, target_features) in enumerate(tqdm(vail_data_generator, ncols=80)):
-            mean, logvar, eps, logit = self.model(transform_features, target_features)
+            mean, logvar, eps, logit = self.model((transform_features, target_features))
             loss = self.loss_function(eps, logits=logit, labels=target_features,
                                       means=mean, logvars=logvar)
             self.valid_loss.update_state(loss)
@@ -91,22 +94,18 @@ class MainVAE(object):
     def predict(self, test_transform_features):
         """模型 inference
             test_transform_features: 一个batch的预测数据"""
-        batch_logit = self.model(test_transform_features, apply_sigmoid=True)
+        batch_logit = self.model(test_transform_features, training=False)
 
         return batch_logit.numpy()
 
-    def save_model(self, model_dir='./checkpoints/default_dir', model_name='default_name'):
+    def save_model(self, model_path='./checkpoints/default_ckpt'):
         """保存模型
-            model_dir: 模型保存路径
+            model_path: 模型保存路径+模型名称
         """
-        if not os.path.exists(model_dir):
-            os.makedirs(model_dir)
-        model_path = os.path.join(model_dir, model_name)
         self.model.save_weights(model_path)
 
-    def load_model(self, model_dir='./checkpoints/default_dir', model_name='default_name'):
+    def load_model(self, model_path='./checkpoints/default_ckpt'):
         """加载模型"""
-        model_path = os.path.join(model_dir, model_name)
         self.model.load_weights(model_path)
 
     def loss_function(self, eps, logits, labels, means, logvars):
@@ -123,8 +122,9 @@ class MainVAE(object):
         logqz_x = self.log_normal_pdf(eps, mean=means, logvar=logvars)
 
         return -tf.reduce_mean(logpx_z + logpz - logqz_x)
+        # return tf.reduce_mean(logpx_z + logpz - logqz_x)
 
-    def log_normal_pdf(self, sample, mean, logvar, raxis=-1):
+    def log_normal_pdf(self, sample, mean, logvar, raxis=1):
         """"""
         log2pi = tf.math.log(2.0 * np.pi)
 
@@ -167,14 +167,11 @@ def main():
                         help="特征大小.")
     parser.add_argument("--lr", type=float, default=1e-4,
                         help="学习率大小.")
-    parser.add_argument("--model_dir", type=str,
-                        default="./checkpoints/default_dir/",
+    parser.add_argument("--model_path", type=str,
+                        default="./checkpoints/default_ckpt",
                         help="模型保存路径.")
-    parser.add_argument("--model_name", type=str,
-                        default="default_name",
-                        help="模型保存名称.")
     parser.add_argument("--inference", action="store_true",
-                        default=True,
+                        default=False,
                         help="是否为预测模式.")
 
     # data
@@ -195,7 +192,7 @@ def main():
     vae = MainVAE(args=args)
     if not args.inference:
         # train
-        # vae.model.build(input_shape=(4, args.feature_size))
+        # vae.model.build(input_shape=(None, 2, args.feature_size))
         # vae.model.summary()
         vae_model = vae.train(train_dataset, test_dataset)
     else:

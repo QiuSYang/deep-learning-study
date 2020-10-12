@@ -136,13 +136,17 @@ class LinearVAE(tf.keras.Model):
 
         return self.generate_decode(eps, apply_sigmoid=True)
 
-    def call(self, z, x=None, apply_sigmoid=False):
+    def call(self, inputs, training=True):
         """ 流程函数
+            inputs = (z, x) --- inference 不包含 x
             z: 待转换向量(例如向量A), 用于解码的输入
             x: 标准向量(例如向量B), 用于编码生产mean and var
         """
-        if not apply_sigmoid:
+        if training:
             # training
+            z, x = inputs  # 解析输入数据
+            apply_sigmoid = False
+
             if x is None:
                 logger.info("Have to input x tensor.")
                 raise ValueError("Have to input x tensor.")
@@ -154,6 +158,9 @@ class LinearVAE(tf.keras.Model):
             return means, logvars, eps, logits
         else:
             # inference
+            z = inputs  # 解析输入数据
+            apply_sigmoid = True
+
             z_en = self.generate_encode(z)
             # 预测时候不在进行reparameterize(直接使用待转换A向量编码向量作为解码的输入 --- 无重参数化)
             logits = self.generate_decode(z_en, apply_sigmoid=apply_sigmoid)
