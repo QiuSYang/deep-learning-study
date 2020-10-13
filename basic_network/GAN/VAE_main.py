@@ -37,7 +37,7 @@ class MainVAE(object):
         # if (self.args.model_dir and
         #         os.path.exists(self.args.model_dir) and
         #         os.listdir(self.args.model_dir)):
-        if self.args.model_path:
+        if self.args.model_path and (self.args.inference or self.args.restore_training):
             # 导入已经trained模型
             try:
                 self.load_model(self.args.model_path)
@@ -63,6 +63,14 @@ class MainVAE(object):
                     loss = self.loss_function(eps, logits=logit, labels=target_features,
                                               means=mean, logvars=logvar)
                 # backward
+                # gradients = tape.gradient(loss, self.model.trainable_variables)
+                # self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+                # variables = self.model.trainable_variables
+                # gradients = tape.gradient(loss, self.model.trainable_variables)
+                # clipped_gradients, use_norm = tf.clip_by_global_norm(gradients, self.args.max_grad_norm)
+                # self.optimizer.apply_gradients(zip(clipped_gradients, self.model.trainable_variables))
+                clipped_variables = [v.assign(tf.clip_by_value(v, -0.01, 0.01))
+                                     for v in self.model.trainable_variables]
                 gradients = tape.gradient(loss, self.model.trainable_variables)
                 self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
                 # 更新epoch train loss
@@ -78,6 +86,9 @@ class MainVAE(object):
             if epoch % 1 == 0:
                 logger.info("Epoch={}, Loss:{}, Valid Loss:{}, Best Valid Loss:{}".format(
                         epoch, self.train_loss.result(), self.valid_loss.result(), best_valid_loss))
+
+            # 千一, 万一评测
+            model_evaluate(self.model)
 
         return self.model
 
@@ -170,9 +181,14 @@ def main():
     parser.add_argument("--model_path", type=str,
                         default="./checkpoints/default_ckpt",
                         help="模型保存路径.")
+    parser.add_argument("--restore_training", action="store_true",
+                        default=False,
+                        help="是否为预测模式.")
     parser.add_argument("--inference", action="store_true",
                         default=False,
                         help="是否为预测模式.")
+    parser.add_argument('--max_grad_norm', default=0.01, type=float,
+                        help="梯度剪切最大阈值.")
 
     # data
     parser.add_argument("--feature_1210", type=str,

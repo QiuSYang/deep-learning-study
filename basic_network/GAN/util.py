@@ -85,12 +85,16 @@ def convert_to_int8(x):
 def get_predict_value(model, features):
     """获取预测特征向量"""
     predict_dataset = tf.data.Dataset.from_tensor_slices(features).batch(256)
-    predict_result = []
+    predict_result = None
     for batch_id, (transform_features) in enumerate(tqdm(predict_dataset, ncols=80)):
         batch_result = model.predict(transform_features)
-        predict_result.append(batch_result)
+        if batch_id == 0:
+            predict_result = batch_result
+        else:
+            # numpy array 拼接
+            predict_result = np.concatenate((predict_result, batch_result), axis=0)
 
-    return np.array(predict_result)
+    return predict_result
 
 
 def model_predict(model, file_name):
