@@ -3,6 +3,7 @@
 # VAE(变分自编码器)-构建VAE网络主程序
 """
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 import time
 import logging
 from tqdm import tqdm
@@ -63,16 +64,19 @@ class MainVAE(object):
                     loss = self.loss_function(eps, logits=logit, labels=target_features,
                                               means=mean, logvars=logvar)
                 # backward
-                # gradients = tape.gradient(loss, self.model.trainable_variables)
-                # self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+                gradients = tape.gradient(loss, self.model.trainable_variables)
+                self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+
                 # variables = self.model.trainable_variables
                 # gradients = tape.gradient(loss, self.model.trainable_variables)
                 # clipped_gradients, use_norm = tf.clip_by_global_norm(gradients, self.args.max_grad_norm)
                 # self.optimizer.apply_gradients(zip(clipped_gradients, self.model.trainable_variables))
-                clipped_variables = [v.assign(tf.clip_by_value(v, -0.01, 0.01))
-                                     for v in self.model.trainable_variables]
-                gradients = tape.gradient(loss, self.model.trainable_variables)
-                self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+
+                # clipped_variables = [v.assign(tf.clip_by_value(v, -0.01, 0.01))
+                #                      for v in self.model.trainable_variables]
+                # gradients = tape.gradient(loss, self.model.trainable_variables)
+                # self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+
                 # 更新epoch train loss
                 self.train_loss.update_state(loss)
 
@@ -88,7 +92,7 @@ class MainVAE(object):
                         epoch, self.train_loss.result(), self.valid_loss.result(), best_valid_loss))
 
             # 千一, 万一评测
-            model_evaluate(self.model)
+            model_evaluate(self)
 
         return self.model
 
@@ -128,19 +132,19 @@ class MainVAE(object):
             logvars: 标准向量B编码生产的方差
         """
         cross_ent = tf.nn.sigmoid_cross_entropy_with_logits(logits=logits, labels=labels)
-        logpx_z = -tf.reduce_mean(cross_ent, axis=[1])
+        logpx_z = -tf.reduce_sum(cross_ent, axis=-1)
         logpz = self.log_normal_pdf(eps, 0.0, 0.0)
         logqz_x = self.log_normal_pdf(eps, mean=means, logvar=logvars)
 
         return -tf.reduce_mean(logpx_z + logpz - logqz_x)
         # return tf.reduce_mean(logpx_z + logpz - logqz_x)
 
-    def log_normal_pdf(self, sample, mean, logvar, raxis=1):
+    def log_normal_pdf(self, sample, mean, logvar, raxis=-1):
         """"""
         log2pi = tf.math.log(2.0 * np.pi)
+        pdf = -0.5 * ((sample - mean) ** 2.0 * tf.exp(-logvar) + logvar + log2pi)
 
-        return tf.reduce_sum(-0.5 * ((sample - mean) ** 2.0 * tf.exp(-logvar) + logvar + log2pi),
-                             axis=raxis)
+        return tf.reduce_sum(pdf, axis=raxis)
 
 
 def get_data_from_numpy(args):

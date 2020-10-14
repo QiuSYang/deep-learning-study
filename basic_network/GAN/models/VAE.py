@@ -48,7 +48,8 @@ class LinearVAE(tf.keras.Model):
             en_fc_3_output = en_fc_3_output - 1
         # NO activation(mean_output size: en_fc_3_output//2, logvar size: en_fc_3_output//2)
         self.encoder_fc_3 = layers.Dense(units=en_fc_3_output,
-                                         activation='relu',
+                                         # activation='relu',
+                                         # activation='sigmoid',
                                          name='encoder_dense_layer_3')
 
         # generate encoder
@@ -70,7 +71,8 @@ class LinearVAE(tf.keras.Model):
         # 待转换向量A多添加一层编码层, 将编码最后输出维度与B向量编码输出mean shape一致(是否需要添加激活层有待考虑)
         generate_en_fc_4_output = generate_en_fc_3_output // 2
         self.generate_en_fc_4 = layers.Dense(units=generate_en_fc_4_output,
-                                             activation='relu',
+                                             # activation='relu',
+                                             # activation='sigmoid',
                                              name='generate_en_dense_layer_4')
 
         # generate decoder
@@ -89,6 +91,15 @@ class LinearVAE(tf.keras.Model):
         generate_de_fc_4_output = self.feature_size  # 原始向量大小
         self.generate_de_fc_4 = layers.Dense(units=generate_de_fc_4_output,
                                              name='generate_de_dense_layer_4')
+        self.bn = True
+
+    def _layer_regularization(self, x):
+        if self.bn:
+            x = layers.BatchNormalization()(x)
+        else:
+            x = layers.Dropout(0.2)(x)
+
+        return x
 
     def reparameterize(self, eps, mean, logvar):
         """合并编码得到mean and var --- 重参数化"""
@@ -98,7 +109,9 @@ class LinearVAE(tf.keras.Model):
     def encode(self, x):
         """编码, 通过训练得到标准集均值和方差"""
         x = self.encoder_fc_1(x)
+        x = self._layer_regularization(x)
         x = self.encoder_fc_2(x)
+        x = self._layer_regularization(x)
         x = self.encoder_fc_3(x)
         # 训练产生分布均值与方差
         mean, logvar = tf.split(x, num_or_size_splits=2, axis=1)
@@ -109,8 +122,11 @@ class LinearVAE(tf.keras.Model):
         """生成网络编码器, 对待转换向量Z进行编码(相当于教程中输入给解码网络的正态分布随机初始值)
         使用网络自动从待转换向量中生成随机初始值用于解码 --- 只是使用简单的网络生成"""
         z_en = self.generate_en_fc_1(z)
+        z_en = self._layer_regularization(z_en)
         z_en = self.generate_en_fc_2(z_en)
+        z_en = self._layer_regularization(z_en)
         z_en = self.generate_en_fc_3(z_en)
+        z_en = self._layer_regularization(z_en)
         z_en = self.generate_en_fc_4(z_en)
 
         return z_en
@@ -118,8 +134,11 @@ class LinearVAE(tf.keras.Model):
     def generate_decode(self, z_en, apply_sigmoid=False):
         """生成网络解码器, 通过编码网络生成随机向量解码之后生成与标准向量B一致向量"""
         z_de = self.generate_de_fc_1(z_en)
+        z_de = self._layer_regularization(z_de)
         z_de = self.generate_de_fc_2(z_de)
+        z_de = self._layer_regularization(z_de)
         z_de = self.generate_de_fc_3(z_de)
+        z_de = self._layer_regularization(z_de)
         logits = self.generate_de_fc_4(z_de)
         if apply_sigmoid:
             # inference, 先进行归一化

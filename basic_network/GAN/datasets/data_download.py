@@ -118,6 +118,6 @@ def test():
 
 
 if __name__ == "__main__":
-    # main()
+    main()
     download_evaluate_data()
     test()
