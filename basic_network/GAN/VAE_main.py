@@ -3,7 +3,7 @@
 # VAE(变分自编码器)-构建VAE网络主程序
 """
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 import time
 import logging
 from tqdm import tqdm
@@ -150,7 +150,7 @@ class MainVAE(object):
 def get_data_from_numpy(args):
     """从numpy array 中构建数据"""
     from sklearn.model_selection import train_test_split
-    DATA_SIZE = 200000
+    DATA_SIZE = 2000000
     transform_feature = np.load(args.feature_1210)[:DATA_SIZE]
     target_feature = np.load(args.feature_0220)[:DATA_SIZE]
     # 归一化
@@ -187,7 +187,7 @@ def main():
                         help="模型保存路径.")
     parser.add_argument("--restore_training", action="store_true",
                         default=False,
-                        help="是否为预测模式.")
+                        help="是否需要恢复训练.")
     parser.add_argument("--inference", action="store_true",
                         default=False,
                         help="是否为预测模式.")
@@ -203,7 +203,7 @@ def main():
                         help="待转换特征数据0220.")
     parser.add_argument("--test_data_size", type=float, default=0.2,
                         help="数据集拆分-验证数据集的大小.")
-    parser.add_argument("--batch_size", type=int, default=256,
+    parser.add_argument("--batch_size", type=int, default=1024,
                         help="训练batch大小.")
     args = parser.parse_args()
 
