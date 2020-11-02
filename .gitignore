@@ -1,4 +1,5 @@
 # ignore idea configuration
+*.pyc
 .idea/
 ./basic_network/.idea/
 ./basic_network/seq2seq_attention/.idea/
