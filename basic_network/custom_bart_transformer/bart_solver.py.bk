@@ -1,0 +1,380 @@
+# -*- coding: utf-8 -*-
+"""
+# custom Bart pipeline：
+    1. 构建模型，保存模型
+    2. 训练模型，模型验证评估
+    3. inference
+"""
+import os
+import logging
+import json
+import time
+import gc
+import PIL
+import numpy as np
+import torch
+import torch.nn as nn
+from torchvision import transforms
+from transformers import BartConfig
+from transformers import AdamW, get_linear_schedule_with_warmup
+from tqdm import tqdm
+
+from custom_bart.model import CustomBartGeneration, CustomBartGenerationDoubleHeads
+from custom_bart.loss import masked_cross_entropy
+from vocab import BOS_ID, EOS_ID, PAD_ID
+
+logger = logging.getLogger(__name__)
+# temporarily use resent18 image statistics
+data_transforms = {
+    'train': transforms.Compose([
+        transforms.RandomResizedCrop(224),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ]),
+    'val': transforms.Compose([
+        transforms.Resize(224),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ]),
+}
+
+
+class BartSolver(object):
+    def __init__(self, config, vocab, train_data_loader, eval_data_loader, is_train=True, model=None):
+        """
+        @param config: 超参数
+        @param vocab: 词汇表
+        @param train_data_loader:
+        @param eval_data_loader:
+        """
+        self.config = config
+        self.vocab = vocab
+        self.train_data_loader = train_data_loader
+        self.eval_data_loader = eval_data_loader
+        self.is_train = is_train
+        self.model = model
+        self.checkpoint_dict = None
+        self.epoch_i = 0
+
+    def build_graph(self):
+        """构建模型"""
+        if self.config.bart_pre_training:
+            self.model = CustomBartGeneration.from_pretrained(self.config.bart_pre_training)
+            if self.model.config.vocab_size != self.config.vocab_size:
+                # 使用预训练模型时词汇表发生变化, 重置embedding表的大小
+                self.model.resize_token_embeddings(self.config.vocab_size)
+        else:
+            bart_config = BartConfig()
+            bart_config.vocab_size = self.config.vocab_size
+            bart_config.d_model = self.config.embed_size
+            bart_config.max_length = self.config.max_generate_length
+            bart_config.num_labels = self.config.num_labels
+            bart_config.image_para_freeze = self.config.image_para_freeze
+            bart_config.pad_token_id = PAD_ID
+            bart_config.bos_token_id = BOS_ID
+            bart_config.eos_token_id = EOS_ID
+            self.model = CustomBartGeneration(config=bart_config)
+
+        if torch.cuda.is_available():
+            self.model.to(self.config.device)
+
+        if self.config.checkpoint:
+            self.checkpoint_dict = self.load_model(self.config.checkpoint)
+
+        if self.is_train:
+            no_decay = ['bias', 'layer_norm.weight']
+            optimizer_grouped_parameters = [
+                {'params': [p for n, p in self.model.named_parameters() if not any(nd in n for nd in no_decay)],
+                 'weight_decay': self.config.weight_decay},
+                {'params': [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)],
+                 'weight_decay': 0.0}
+            ]
+            self.optimizer = AdamW(optimizer_grouped_parameters,
+                                   lr=self.config.learning_rate,
+                                   eps=self.config.adam_epsilon)
+
+            self.scheduler = get_linear_schedule_with_warmup(self.optimizer,
+                                                             num_warmup_steps=self.config.num_warmup_steps,
+                                                             num_training_steps=self.config.num_training_steps)
+            if self.config.checkpoint and self.checkpoint_dict:
+                self.scheduler.load_state_dict(self.checkpoint_dict["lr_scheduler"])
+
+    def save_model(self, epoch, best=None):
+        """Save parameters to checkpoint"""
+        if best:
+            ckpt_path = os.path.join(self.config.save_path, f'{best}.pkl')
+        else:
+            ckpt_path = os.path.join(self.config.save_path, f'{epoch}.pkl')
+        model_state = {'model': self.model.state_dict(),
+                       'optimizer': self.optimizer.state_dict(),
+                       'lr_scheduler': self.scheduler.state_dict(),
+                       'epoch': epoch}
+        print(f'Save parameters to {ckpt_path}')
+        torch.save(model_state, ckpt_path)
+
+    def load_model(self, checkpoint_path):
+        """Load parameters from checkpoint"""
+        print(f'Load parameters from {checkpoint_path}')
+        checkpoint = torch.load(checkpoint_path)
+        self.epoch_i = checkpoint.get('epoch')
+        self.model.load_state_dict(checkpoint['model'])
+
+        return checkpoint
+
+    def write_summary(self, epoch_i):
+        epoch_loss = getattr(self, 'epoch_loss', None)
+        if epoch_loss is not None:
+            self.writer.update_loss(
+                loss=epoch_loss,
+                step_i=epoch_i + 1,
+                name='train_loss')
+
+        epoch_recon_loss = getattr(self, 'epoch_recon_loss', None)
+        if epoch_recon_loss is not None:
+            self.writer.update_loss(
+                loss=epoch_recon_loss,
+                step_i=epoch_i + 1,
+                name='train_recon_loss')
+
+        epoch_kl_div = getattr(self, 'epoch_kl_div', None)
+        if epoch_kl_div is not None:
+            self.writer.update_loss(
+                loss=epoch_kl_div,
+                step_i=epoch_i + 1,
+                name='train_kl_div')
+
+        kl_mult = getattr(self, 'kl_mult', None)
+        if kl_mult is not None:
+            self.writer.update_loss(
+                loss=kl_mult,
+                step_i=epoch_i + 1,
+                name='kl_mult')
+
+        epoch_bow_loss = getattr(self, 'epoch_bow_loss', None)
+        if epoch_bow_loss is not None:
+            self.writer.update_loss(
+                loss=epoch_bow_loss,
+                step_i=epoch_i + 1,
+                name='bow_loss')
+
+        validation_loss = getattr(self, 'validation_loss', None)
+        if validation_loss is not None:
+            self.writer.update_loss(
+                loss=validation_loss,
+                step_i=epoch_i + 1,
+                name='validation_loss')
+
+    def get_image_tensor(self, images_name, images_id, sentence_length, data_type='val'):
+        """获取图片tensor"""
+        images = ["NULL"] * sentence_length  # 先将每个token图像数据都置空
+
+        assert len(images_name) == len(images_id)
+        for idx, name in enumerate(images_name):
+            # 将包含图片token位置替换为图片绝对路径
+            images[images_id[idx]] = name
+
+        # start = time.clock()
+        # img = torch.zeros(3, 224, 224)
+        # print("0", time.clock() - start)
+        resp_list = list()
+        for image in images:
+            if image == "NULL":
+                img = torch.zeros(3, 224, 224)
+                resp_list.append(img)
+            else:
+                img = torch.zeros(3, 224, 224)
+                try:
+                    img_tmp = PIL.Image.open(image)
+                    img = data_transforms[data_type](img_tmp)
+                except:
+                    print("can't open image file: ", image)
+                    pass
+                finally:
+                    resp_list.append(img)
+            # resp_list.append(1)
+
+        return torch.stack(resp_list)
+
+        # images = [torch.zeros(3, 224, 224)] * sentence_length
+        # resp_list = list()
+        # for file in images_name:
+        #     img = torch.zeros(3, 224, 224)
+        #     try:
+        #         img_tmp = PIL.Image.open(file)
+        #         img = data_transforms[data_type](img_tmp)
+        #     except:
+        #         print("can't open image file: ", file)
+        #         pass
+        #     finally:
+        #         resp_list.append(img)
+        # assert len(resp_list) == len(images_id)
+        # for idx, single_image in enumerate(resp_list):
+        #     images[images_id[idx]] = single_image
+        #
+        # return torch.stack(images)
+
+    def get_image_embeds(self, batch_images, batch_images_id, sentence_length):
+        """获取图像embedding编码"""
+        pass
+
+    def train(self):
+        """训练函数"""
+        epoch_loss_history = []
+        best_eval_loss = float('inf')  # 记录最佳损失
+
+        # 设置并行计算
+        if self.config.gpu_nums > 1:
+            print("use torch.nn.DataParallel for the parallel operations.")
+            self.model = nn.DataParallel(self.model)
+        if self.config.local_rank != -1:
+            print("use torch.nn.parallel.DistributedDataParallel for the parallel operations.")
+            self.model = nn.parallel.DistributedDataParallel(self.model,
+                                                             device_ids=[self.config.local_rank],
+                                                             output_device=self.config.local_rank,
+                                                             find_unused_parameters=True)
+
+        for epoch_i in range(self.epoch_i, self.config.n_epoch):
+            batch_loss_history = []
+            loss_history = []
+            num_batch = 0
+            self.model.train()
+            n_total_words = 0
+
+            # 每个batch开始之前, 先进行梯度清空
+            # self.optimizer.zero_grad()
+            self.model.zero_grad()  # 更加安全的清理梯度
+
+            for batch_i, (input_ids, input_token_type_ids,
+                          input_images_name, input_images_id,
+                          lm_labels, mc_token_ids, mc_labels) in enumerate(tqdm(self.train_data_loader, ncols=80)):
+                num_batch = batch_i
+                start_time_ = time.clock()
+                if isinstance(self.model, CustomBartGeneration):
+                    # 单头任务, 进行数据shape: [batch, sequence_length] mc_token_ids, mc_labels不使用
+                    input_ids = torch.LongTensor(input_ids)
+                    input_ids = input_ids.view(-1, input_ids.size(-1)).to(self.config.device)
+                    input_token_type_ids = torch.LongTensor(input_token_type_ids)
+                    input_token_type_ids = input_token_type_ids.view(-1, input_token_type_ids.size(-1)).to(self.config.device)
+                    # 收集图像数据
+                    start = time.clock()
+                    input_images = []
+                    for i, candidate_images_name in enumerate(input_images_name):
+                        candidate_images = []
+                        for j, images_name in enumerate(candidate_images_name):
+                            sentence_images_tensor = self.get_image_tensor(images_name,
+                                                                           input_images_id[i][j],
+                                                                           input_ids.size(-1),
+                                                                           data_type='train')
+                            candidate_images.append(torch.stack(sentence_images_tensor))
+                        input_images.append(candidate_images)
+                    # input_images: [batch*num_candidates, 3, 224, 224]
+                    image_batch_size = input_ids.size(0)*input_ids.size(1)
+                    image_shape = (image_batch_size, 3, 224, 224)
+                    input_images = torch.stack(input_images).view(image_shape).to(self.config.device)
+                    input_images = None
+                    print("1", time.clock() - start)
+
+                    input_lm_labels = torch.LongTensor(lm_labels)
+                    input_lm_labels = input_lm_labels.view(-1, input_lm_labels.size(-1)).to(self.config.device)
+                    input_lm_labels_length = torch.LongTensor(mc_token_ids)
+                    # 计算每个target sentence length
+                    input_lm_labels_length = input_lm_labels_length.view(-1).to(self.config.device)
+
+                    encoder_attention_mask = input_ids.ne(0).long()  # 对输入数据进行mask
+                    # target输入, 去除最后一位, 本应该去除end符, 但实际计算end符loss不被计算
+                    decoder_input_ids = input_lm_labels[:, :-1]
+                    outputs = self.model(input_ids=input_ids,
+                                         input_token_type_ids=input_token_type_ids,
+                                         attention_mask=encoder_attention_mask,
+                                         input_images=input_images,
+                                         decoder_input_ids=decoder_input_ids)
+
+                    decoder_target_label_ids = input_lm_labels[:, 1:]  # GPT解码Label, 去除首部的起始字符
+                    sentence_logits = outputs[0]  # 获取Bart的logits
+                    batch_loss, n_words = masked_cross_entropy(
+                        sentence_logits,
+                        decoder_target_label_ids,
+                        input_lm_labels_length)
+
+                elif isinstance(self.model, CustomBartGenerationDoubleHeads):
+                    # 多任务
+                    pass
+
+                if self.config.gpu_nums > 1:
+                    # mean() to average on multi-gpu parallel (not distributed) training
+                    batch_loss = batch_loss.mean()
+                    n_words = n_words.mean()
+                if self.config.gradient_accumulation_step > 1:
+                    batch_loss = batch_loss / self.config.gradient_accumulation_step
+                    n_words = n_words / self.config.gradient_accumulation_step
+
+                # assert not isnan(batch_loss.item())
+                batch_loss_history.append(batch_loss.item())
+                n_total_words += n_words.item()
+                # loss_history.append(loss)
+
+                if batch_i % self.config.print_every == 0:
+                    print(
+                        f'Epoch: {epoch_i + 1}, iter {batch_i}: loss = {batch_loss.item() / n_words.item():.3f}')
+
+                # Back-propagation
+                # loss.backward()
+                batch_loss.backward()
+
+                # Gradient cliping
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.clip)
+
+                # 进行梯度累积
+                if (batch_i + 1) % self.config.gradient_accumulation_step == 0:
+                    # Run optimizer & scheduler
+                    self.optimizer.step()
+                    self.scheduler.step()
+                    # self.optimizer.zero_grad()  # 清空梯度
+                    self.model.zero_grad()
+
+                print("2", time.clock() - start_time_)
+
+            torch.cuda.empty_cache()
+            gc.collect()
+
+            # epoch_loss = np.sum(loss_history) / (num_batch + 1)
+            epoch_loss = np.sum(batch_loss_history) / n_total_words
+            epoch_loss_history.append(epoch_loss)
+            self.epoch_loss = epoch_loss
+
+            print_str = f'Epoch {epoch_i + 1} loss average: {epoch_loss:.3f}'
+            print(print_str)
+
+            if epoch_i % self.config.save_every_epoch == 0:
+                self.save_model(epoch_i + 1)
+
+            # Only evaluate when single GPU otherwise metrics may not average well
+            if self.config.local_rank == -1 and self.config.model_val:
+                # print('\n<BLEU score>...')
+                # self.calculate_bleu()
+
+                print('\n<Validation>...')
+                self.validation_loss = self.evaluate()
+
+                # 保存最佳validation los model
+                if self.validation_loss < best_eval_loss:
+                    self.save_model(epoch_i, best='best_model')
+                    # 更新最佳验证损失
+                    best_eval_loss = self.validation_loss
+            #
+            # if epoch_i % self.config.plot_every_epoch == 0:
+            #     self.write_summary(epoch_i)
+
+        self.save_model(self.config.n_epoch)
+
+        return epoch_loss_history
+
+    def evaluate(self):
+        """评估函数"""
+        pass
+
+    def generate_for_evaluation(self):
+        """模型inference"""
+        pass
