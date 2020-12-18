@@ -5,8 +5,7 @@ import logging
 import torch
 from torch import nn
 
-from src.config.answer_extract_config import *
-from src.util.answer_extract_util import *
+from crf.answer_extract_util import *
 
 logger = logging.getLogger(__name__)
 
