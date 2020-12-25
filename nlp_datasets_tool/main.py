@@ -44,7 +44,8 @@ def drmc_data_structuralization():
     tokenizer = BertTokenizer.from_pretrained("hfl/chinese-roberta-wwm-ext-large")
 
     processor = DRMCDataProcessor(
-        tokenizer
+        tokenizer,
+        task='a2q'
     )
 
     dataset = processor.process(dataset)

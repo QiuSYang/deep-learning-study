@@ -48,6 +48,7 @@ class DRMC(datasets.GeneratorBasedBuilder):
 
     CMRC_DATA_TYPE = "cmrc"
     DRCD_DATA_TYPE = "DRCD"
+    TASK = ['hl_ag', 'a2q_or_q2a']
 
     MAX_CONTEXT_LENGTH = 508
 
@@ -67,6 +68,7 @@ class DRMC(datasets.GeneratorBasedBuilder):
                     "question": datasets.Sequence(datasets.Value("string")),  # datasets.Value("string"),  # 段落问题文本
                     "answer": datasets.Sequence(datasets.Value("string")),  # datasets.Value("string"),  # 段落答案文本
                     "data_name": datasets.Value("string"),  # 数据集名称
+                    "task": datasets.Value("string"),
                 }
             ),
             # No default supervised_keys (as we have to pass both question
@@ -116,11 +118,15 @@ class DRMC(datasets.GeneratorBasedBuilder):
         """将对应答案句子添加高亮存入数据集"""
         samples = []
         sentence_left_id, sentence_right_id = 0, 0
+        if is_drcd_data:
+            data_name = self.DRCD_DATA_TYPE
+        else:
+            data_name = self.CMRC_DATA_TYPE
         for idx, sentence in enumerate(context_sentences):
             sentence_left_id = sentence_right_id
             sentence_right_id = sentence_left_id + len(sentence)
             answers, questions = [], []
-            highlight_idx = None
+            valid_sentences, new_highlight_idx = [], None
             for qa_idx, qa in enumerate(qas):
                 answer_text = qa.get('answers')[0].get('text')
                 question_text = qa.get('question')
@@ -132,46 +138,90 @@ class DRMC(datasets.GeneratorBasedBuilder):
                         and answer_end_id <= sentence_right_id):
                     # 文本在句子之中, 并且位置对应
                     highlight_idx = idx
+                    if new_highlight_idx is None:
+                        # 单条句子只进行一次上下文查找
+                        valid_sentences, new_highlight_idx = self._get_highlight_context_sentences(
+                            context_sentences, highlight_idx, max_len=self.MAX_CONTEXT_LENGTH)
+                    if is_drcd_data and len(valid_sentences) > 0:
+                        # 繁体->简体
+                        for i in range(len(valid_sentences)):
+                            valid_sentences[i] = obj.convert(valid_sentences[i])
+                        answer_text = obj.convert(answer_text)
+                        question_text = obj.convert(question_text)
                     answers.append(answer_text)
                     questions.append(question_text)
 
-            if answers and highlight_idx is not None:
-                valid_sentences, new_highlight_idx = self._get_highlight_context_sentences(
-                    context_sentences, highlight_idx, max_len=self.MAX_CONTEXT_LENGTH)
-                # 存储数据
-                if is_drcd_data:
-                    # 繁体转简体
-                    for i in range(len(valid_sentences)):
-                        valid_sentences[i] = obj.convert(valid_sentences[i])
-                    for i in range(len(answers)):
-                        answers[i] = obj.convert(answers[i])
-                    for i in range(len(questions)):
-                        questions[i] = obj.convert(questions[i])
-                    data_name = self.DRCD_DATA_TYPE
-                    samples.append({
-                        "context": {
-                            "sentences": valid_sentences,  # 将段落拆为多句保存
-                            "highlight_idx": new_highlight_idx,  # 记录答案位于哪句话
-                        },
-                        # "context": valid_sentences,  # 将段落拆为多句保存
-                        # "highlight_idx": new_highlight_idx,  # 记录答案位于哪句话
-                        "question": questions,  # 段落问题文本
-                        "answer": answers,  # 段落答案文本
-                        "data_name": data_name  # 数据集名称
-                    })
-                else:
-                    data_name = self.CMRC_DATA_TYPE
-                    samples.append({
-                        "context": {
-                            "sentences": valid_sentences,  # 将段落拆为多句保存
-                            "highlight_idx": new_highlight_idx,  # 记录答案位于哪句话
-                        },
-                        # "context": valid_sentences,  # 将段落拆为多句保存
-                        # "highlight_idx": new_highlight_idx,  # 记录答案位于哪句话
-                        "question": questions,  # 段落问题文本
-                        "answer": answers,  # 段落答案文本
-                        "data_name": data_name  # 数据集名称
-                    })
+                    if 'a2q_or_q2a' in self.TASK:
+                        # a2q_or_q2a任务初始数据集都一样, 特征处理是谁是条件和目标的题, 即是Q生成A还是A生成Q
+                        samples.append({
+                            "context": {
+                                "sentences": valid_sentences,  # 将段落拆为多句保存
+                                "highlight_idx": new_highlight_idx,  # 记录答案位于哪句话
+                            },
+                            # "context": valid_sentences,  # 将段落拆为多句保存
+                            # "highlight_idx": new_highlight_idx,  # 记录答案位于哪句话
+                            "question": [answer_text],  # 段落问题文本, 单文本也用list存储, 为了保证数据结构统一
+                            "answer": [question_text],  # 段落答案文本
+                            "data_name": data_name,  # 数据集名称
+                            "task": "a2q_or_q2a"
+                        })
+
+            assert len(answers) == len(questions)
+            if answers and len(valid_sentences) > 0 and new_highlight_idx is not None and "hl_ag" in self.TASK:
+                # hl_ag
+                samples.append({
+                    "context": {
+                        "sentences": valid_sentences,  # 将段落拆为多句保存
+                        "highlight_idx": new_highlight_idx,  # 记录答案位于哪句话
+                    },
+                    # "context": valid_sentences,  # 将段落拆为多句保存
+                    # "highlight_idx": new_highlight_idx,  # 记录答案位于哪句话
+                    "question": questions,  # 段落问题文本
+                    "answer": answers,  # 段落答案文本
+                    "data_name": data_name,  # 数据集名称
+                    "task": "hl_ag"
+                })
+
+            # # 老版仅支持hl_ag任务数据集收集
+            # if answers and highlight_idx is not None and "hl_ag" in self.TASK:
+            #     valid_sentences, new_highlight_idx = self._get_highlight_context_sentences(
+            #         context_sentences, highlight_idx, max_len=self.MAX_CONTEXT_LENGTH)
+            #     # 存储数据
+            #     if is_drcd_data:
+            #         # 繁体转简体
+            #         for i in range(len(valid_sentences)):
+            #             valid_sentences[i] = obj.convert(valid_sentences[i])
+            #         for i in range(len(answers)):
+            #             answers[i] = obj.convert(answers[i])
+            #         for i in range(len(questions)):
+            #             questions[i] = obj.convert(questions[i])
+            #         data_name = self.DRCD_DATA_TYPE
+            #         samples.append({
+            #             "context": {
+            #                 "sentences": valid_sentences,  # 将段落拆为多句保存
+            #                 "highlight_idx": new_highlight_idx,  # 记录答案位于哪句话
+            #             },
+            #             # "context": valid_sentences,  # 将段落拆为多句保存
+            #             # "highlight_idx": new_highlight_idx,  # 记录答案位于哪句话
+            #             "question": questions,  # 段落问题文本
+            #             "answer": answers,  # 段落答案文本
+            #             "data_name": data_name,  # 数据集名称
+            #             "task": "hl_ag"
+            #         })
+            #     else:
+            #         data_name = self.CMRC_DATA_TYPE
+            #         samples.append({
+            #             "context": {
+            #                 "sentences": valid_sentences,  # 将段落拆为多句保存
+            #                 "highlight_idx": new_highlight_idx,  # 记录答案位于哪句话
+            #             },
+            #             # "context": valid_sentences,  # 将段落拆为多句保存
+            #             # "highlight_idx": new_highlight_idx,  # 记录答案位于哪句话
+            #             "question": questions,  # 段落问题文本
+            #             "answer": answers,  # 段落答案文本
+            #             "data_name": data_name,  # 数据集名称
+            #             "task": "hl_ag"
+            #         })
 
         return samples
 
