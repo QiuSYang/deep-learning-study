@@ -72,11 +72,31 @@ class DRMCDataProcessor(DataProcessor):
 
             if isinstance(answers, list) and isinstance(questions, list):
                 assert len(answers) == len(questions)
-                # samples = []
+                # input_ids, input_mask, input_seg, decode_input, decode_target, label = [], [], [], [], [], []
                 # for idx, answer in enumerate(answers):
                 #     question = questions[idx]
                 #     sample = self._condition_context_target(context_str, condition=answer, target=question)
-                #     samples.append(sample)
+                #     for key, value in sample.items():
+                #         if key == 'input_ids':
+                #             input_ids.append(value)
+                #         elif key == 'input_mask':
+                #             input_mask.append(value)
+                #         elif key == 'input_seg':
+                #             input_seg.append(value)
+                #         elif key == 'decode_input':
+                #             decode_input.append(value)
+                #         elif key == 'decode_target':
+                #             decode_target.append(value)
+                #         elif key == 'label':
+                #             label.append(value)
+                # return {
+                #         "input_ids": torch.stack(input_ids, dim=0),  # 堆叠为二维tensor, 参考batch
+                #         "input_mask": torch.stack(input_mask, dim=0),
+                #         "input_seg": torch.stack(input_seg, dim=0),
+                #         "decode_input": torch.stack(decode_input, dim=0),
+                #         "decode_target": torch.stack(decode_target, dim=0),
+                #         "label": label
+                #     }  # 依然不行, 单条数据多个答案输入
                 # return samples  # 不支持list数据类型返回,仅仅支持dict数据类型返回
                 return self._condition_context_target(context_str, answers[0], questions[0])  # 支持第一条数据编码转换
             elif isinstance(answers, str) and isinstance(questions, str):

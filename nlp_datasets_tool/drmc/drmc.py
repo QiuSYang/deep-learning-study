@@ -142,10 +142,12 @@ class DRMC(datasets.GeneratorBasedBuilder):
                         # 单条句子只进行一次上下文查找
                         valid_sentences, new_highlight_idx = self._get_highlight_context_sentences(
                             context_sentences, highlight_idx, max_len=self.MAX_CONTEXT_LENGTH)
-                    if is_drcd_data and len(valid_sentences) > 0:
+                        if is_drcd_data and len(valid_sentences) > 0:
+                            # 繁体->简体
+                            for i in range(len(valid_sentences)):
+                                valid_sentences[i] = obj.convert(valid_sentences[i])
+                    if is_drcd_data:
                         # 繁体->简体
-                        for i in range(len(valid_sentences)):
-                            valid_sentences[i] = obj.convert(valid_sentences[i])
                         answer_text = obj.convert(answer_text)
                         question_text = obj.convert(question_text)
                     answers.append(answer_text)
