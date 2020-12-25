@@ -35,7 +35,7 @@ class DRMCDataProcessor(DataProcessor):
             self.tokenizer.add_special_tokens(special_tokens_dict)
 
     def process(self, dataset: datasets.Dataset):
-        dataset = dataset.map(self._filter_cmrc_data)
+        dataset = dataset.filter(self._filter_cmrc_data)
         dataset = dataset.map(self._convert_to_features)
 
         return dataset

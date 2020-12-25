@@ -59,7 +59,7 @@ class DRMC(datasets.GeneratorBasedBuilder):
                     "context": datasets.Features(
                         {
                             "sentences": datasets.Sequence(datasets.Value("string")),  # 将段落拆为多句保存
-                            "highlight_idx": datasets.Value("string"),  # 记录答案位于哪句话
+                            "highlight_idx": datasets.Value("int32"),  # 记录答案位于哪句话
                         }
                     ),
                     # "context": datasets.Sequence(datasets.Value("string")),
@@ -135,7 +135,7 @@ class DRMC(datasets.GeneratorBasedBuilder):
                     answers.append(answer_text)
                     questions.append(question_text)
 
-            if answers and highlight_idx:
+            if answers and highlight_idx is not None:
                 valid_sentences, new_highlight_idx = self._get_highlight_context_sentences(
                     context_sentences, highlight_idx, max_len=self.MAX_CONTEXT_LENGTH)
                 # 存储数据
