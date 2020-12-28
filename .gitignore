@@ -9,3 +9,4 @@
 ./question_generation/.idea/
 ./nlp_datasets_tool/.idea/
 ./nlp_datasets_tool/data_cache/
+./basic_network/torch_transformer_self-attention_paper_reproduction/.idea/
