@@ -321,12 +321,13 @@ class UniLMModel(BertPreTrainedModel):
             padding_mask = self.compute_padding_mask(input_ids)
             seq2seq_atten_mask = self.compute_attention_mask(token_type_ids)
 
-            attention_mask = padding_mask + seq2seq_atten_mask
+            # attention_mask = padding_mask + seq2seq_atten_mask
+            attention_mask = padding_mask * seq2seq_atten_mask  # 解决padding也做attention的问题
 
         embedding_output = self.embeddings(input_ids=input_ids,token_type_ids=token_type_ids,position_ids=position_ids)
         encoder_outputs = self.encoder(
             embedding_output,
-            attention_mask = attention_mask
+            attention_mask=attention_mask
         )
 
         sequence_output = encoder_outputs[0]
