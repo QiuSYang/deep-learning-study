@@ -103,3 +103,61 @@ class PositionwiseFeedForward(nn.Module):
         x = self.layer_norm(x)
 
         return x
+    
+
+class EncoderLayer(nn.Module):
+    """compose with two layers"""
+    def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
+        """
+            d_model: embedding 输出向量大小
+            d_inner: 编码之后向量输出大小
+            n_head: 使用多少注意力头
+            d_k: 每个头向量的大小，主要是q, k
+            d_v: 每个头向量的大小，主要是v
+        """
+        super(EncoderLayer, self).__init__()
+        self.self_attention = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
+
+    def forward(self, input_vectors, self_attention_mask=None):
+        """
+            input: embedding编码之后的向量
+            self_attention_mask: 自编码掩码
+        """
+        encoder_output, encoder_self_attention = self.self_attention(input_vectors, input_vectors, input_vectors,
+                                                                     mask=self_attention_mask)
+        encoder_output = self.pos_ffn(encoder_output)
+
+        return encoder_output, encoder_self_attention
+
+
+class DecoderLayer(nn.Module):
+    """compose with three layers"""
+    def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
+        """
+            d_model: embedding 输出向量大小
+            d_inner: 编码之后向量输出大小
+            n_head: 使用多少注意力头
+            d_k: 每个头向量的大小，主要是q, k
+            d_v: 每个头向量的大小，主要是v
+        """
+        super(DecoderLayer, self).__init__()
+        self.self_attention = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+        self.cross_attention = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)  # 编码与解码交叉attention
+        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
+
+    def forward(self, input_vectors, encoder_output,
+                self_attention_mask=None, cross_attention_mask=None):
+        """
+            input: embedding编码之后的向量
+            encoder_output: 自编码之后输出向量
+            self_attention_mask: 解码(自回归)掩码, 一般是当前token只能观测之前已经出现的token, 因此attention只能对已经出现token作用
+            cross_attention_mask: encoder decoder交叉模块attention, 其实就是编码模块哪些token没有被mask, 就是encoder self_attention_mask
+        """
+        decoder_output, decoder_self_attention = self.self_attention(input_vectors, input_vectors, input_vectors,
+                                                                     mask=self_attention_mask)
+        decoder_output, decoder_encoder_attention = self.cross_attention(decoder_output, encoder_output, encoder_output,
+                                                                         mask=cross_attention_mask)
+        decoder_output = self.pos_ffn(decoder_output)
+
+        return decoder_output, decoder_self_attention, decoder_encoder_attention
