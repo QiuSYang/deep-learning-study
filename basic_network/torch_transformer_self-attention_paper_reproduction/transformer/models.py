@@ -9,6 +9,7 @@ import torch.nn as nn
 
 from transformer.configs import TransformerConfig
 from transformer.layers import EncoderLayer, DecoderLayer
+from utils import *
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +20,13 @@ class PositionalEncoding(nn.Module):
         super(PositionalEncoding, self).__init__()
 
         # Not a parameter
-        self.register_buffer("position_table")
+        self.register_buffer("position_table", self._get_sinusoid_encoding_table(n_position, d_hid))
 
     def _get_sinusoid_encoding_table(self, n_position, d_hid):
-        """"""
+        """
+            PE(pos, 2i) = sin(pos/(10000^(2i/d_model)))
+            PE(pos, 2i+1) = cos(pos/(10000^(2i/d_model))), i代表单词的维度
+        """
         # TODO: make it with torch instead of numpy
         def get_position_angle_vec(position):
             return [position / np.power(10000, 2 * (hid_j // 2) / d_hid) for hid_j in range(d_hid)]
@@ -34,7 +38,7 @@ class PositionalEncoding(nn.Module):
         return torch.FloatTensor(sinusoid_table).unsqueeze(0)
 
     def forward(self, x):
-        return x + self.pos_table[:, :x.size(1)].clone().detach()
+        return x + self.position_table[:, :x.size(1)].clone().detach()
 
 
 class Encoder(nn.Module):
@@ -136,3 +140,16 @@ class Transformer(nn.Module):
 
         if self.config.emb_src_trg_weight_sharing:
             self.encoder.word_emb.weight = self.decoder.word_emb.weight
+
+    def forward(self, input_ids, decoder_input_ids):
+        encoder_attention_mask = get_pad_mask(input_ids, self.config.pad_idx)
+        decoder_attention_mask = (get_pad_mask(decoder_input_ids, self.config.pad_idx) &
+                                  get_subsequent_mask(decoder_input_ids))
+
+        encoder_output, *_ = self.decoder(input_ids, encoder_attention_mask)
+        decoder_output, *_ = self.decoder(decoder_input_ids, decoder_attention_mask,
+                                          encoder_output=encoder_output,
+                                          encoder_attention_mask=encoder_attention_mask)
+        sequence_logit = self.trg_word_prj(decoder_output) * self.x_logit_scale
+
+        return sequence_logit.view(-1, sequence_logit.size(2))

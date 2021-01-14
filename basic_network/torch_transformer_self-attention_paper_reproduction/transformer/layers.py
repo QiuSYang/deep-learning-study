@@ -68,6 +68,7 @@ class MultiHeadAttention(nn.Module):
         q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)  # 矩阵乘法只对最后两维操作
 
         if mask is not None:
+            # mask shape: encoder-[batch, 1, 1, seq_len] or decoder-[batch, 1, seq_len, seq_len]
             mask = mask.unsqueeze(1)  # For head axis broadcasting
 
         q, attn = self.attention(q, k, v, mask=mask)
