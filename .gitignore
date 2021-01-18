@@ -11,3 +11,6 @@
 ./nlp_datasets_tool/data_cache/
 ./basic_network/torch_transformer_self-attention_paper_reproduction/.idea/
 ./knowledge_point_extraction/.idea/
+./question_generation/.idea
+./question_generation/gpt_generation/.idea/
+./question_generation/tianchi_chinese_medical/.idea/
