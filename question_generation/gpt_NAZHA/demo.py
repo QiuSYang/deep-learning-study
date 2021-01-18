@@ -2,7 +2,8 @@
 # demo 测试
 """
 import os
-from transformers import OpenAIGPTModel, OpenAIGPTConfig
+from transformers import OpenAIGPTModel, OpenAIGPTConfig, TFOpenAIGPTModel
+from transformers import GPT2Model, GPT2Config
 
 
 class GPTConfig(object):
@@ -60,10 +61,10 @@ class GPTConfig(object):
 
 
 if __name__ == "__main__":
-    config = OpenAIGPTConfig()
+    config = GPT2Config()
     config.vocab_size = 21180
     config.temperature = 1
     config.type_vocab_size = 16
     model_path = "D:/BaiduNetdiskDownload/models_gpt/"
-    model = OpenAIGPTModel.from_pretrained(model_path, config=config, from_tf=True)
+    model = GPT2Model.from_pretrained(model_path, config=config, from_tf=True)
     pass
