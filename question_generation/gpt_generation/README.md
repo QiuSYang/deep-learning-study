@@ -1,0 +1,1 @@
+GPT model + NAZHA(或者其他中文预训练模型) pre-train model weights 微调GPT模型进行生成任务.
