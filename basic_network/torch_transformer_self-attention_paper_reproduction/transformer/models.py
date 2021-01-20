@@ -86,7 +86,7 @@ class Decoder(nn.Module):
         self.layer_stack = nn.ModuleList([
             DecoderLayer(d_model=self.config.d_model, d_inner=self.config.d_inner, n_head=self.config.n_head,
                          d_k=self.config.d_k, d_v=self.config.d_v, dropout=self.config.dropout)
-            for _ in range(self.decoder_n_layers)])
+            for _ in range(self.config.decoder_n_layers)])
         self.layer_norm = nn.LayerNorm(self.config.d_model, eps=1e-6)
 
     def forward(self, decoder_input_ids, decoder_attention_mask,
@@ -133,7 +133,7 @@ class Transformer(nn.Module):
         assert self.config.d_model == self.config.word_vec_size, \
             'To facilitate the residual connections, \
              the dimensions of all module outputs shall be the same.'
-        if self.configtrg_emb_prj_weight_sharing:
+        if self.config.trg_emb_prj_weight_sharing:
             # Share the weight between target word embedding & last dense layer
             self.trg_word_prj.weight = self.decoder.word_emb.weight
             self.x_logit_scale = (self.config.d_model ** -0.5)
