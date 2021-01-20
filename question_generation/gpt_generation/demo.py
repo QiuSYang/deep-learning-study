@@ -4,6 +4,8 @@
 import os
 from transformers import OpenAIGPTModel, OpenAIGPTConfig, TFOpenAIGPTModel
 from transformers import GPT2Model, GPT2Config
+from transformers import BartModel
+from src.models.custom_gpt import CustomGPT
 
 
 class GPTConfig(object):
@@ -61,10 +63,14 @@ class GPTConfig(object):
 
 
 if __name__ == "__main__":
-    model_path = "D:/BaiduNetdiskDownload/nezha_gpt_dialog"  #  "D:/BaiduNetdiskDownload/models_gpt/"
+    # model_path = "D:/BaiduNetdiskDownload/nezha_gpt_dialog"  #  "D:/BaiduNetdiskDownload/models_gpt/"
+    model_path = "/home/yckj2453/nlp_space/kbqa/pre-train-models/nezha_gpt_dialog"
     config = GPT2Config.from_pretrained(model_path)
     # config.vocab_size = 21180
     # config.temperature = 1
     # config.type_vocab_size = 16
-    model = GPT2Model.from_pretrained(model_path, config=config, from_tf=True)
+    model = CustomGPT.from_pretrained(model_path, config=config, from_tf=True)
+
+    # config = GPT2Config()
+    # model = GPT2Model(config=config)
     pass

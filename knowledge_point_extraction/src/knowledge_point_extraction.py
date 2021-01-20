@@ -4,6 +4,7 @@
 import os
 import logging
 import torch
+import torch.nn.functional as F
 from transformers import (
     PreTrainedModel,
     BertModel,
@@ -37,10 +38,18 @@ class KnowledgePointExtractionModel(PreTrainedModel):
                                               allowed_transitions=trans)
 
     def forward(self,
-                input_ids=None,
+                input_ids,
+                labels,
                 attention_mask=None):
         """前向传播"""
-        embedding_outputs = self.embedding(input_ids, attention_mask=attention_mask)
-        mlp_outputs = self.kpe_mlp()
-        crf_outputs = self.kpe_crf()
-        pass
+        bert_outputs = self.embedding(input_ids, attention_mask=attention_mask, return_dict=True)
+        embedding_output = bert_outputs.last_hidden_state
+
+        mlp_outputs = self.kpe_mlp(embedding_output)
+        logits = F.softmax(mlp_outputs, dim=-1)
+
+        if attention_mask is None:
+            attention_mask = input_ids.ne(0)
+        crf_outputs = self.kpe_crf(logits, labels, mask=attention_mask)
+
+        return {"loss": crf_outputs}
