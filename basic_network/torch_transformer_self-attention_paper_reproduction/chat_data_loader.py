@@ -70,7 +70,7 @@ class ChatDataset(Dataset):
             extra = self.max_decode_len - len(decode_input_ids)
             if extra > 0:
                 decode_input_ids += [self.PAD_ID] * extra
-                decode_label_ids += [-100] * extra
+                decode_label_ids += [self.PAD_ID] * extra
 
             dialogue_samples.append({
                 "input_ids": torch.tensor(input_ids).long(),

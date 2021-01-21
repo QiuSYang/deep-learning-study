@@ -70,7 +70,7 @@ class Encoder(nn.Module):
         if return_attentions:
             return encoder_output, encoder_self_attention_list
 
-        return encoder_output
+        return encoder_output,
 
 
 class Decoder(nn.Module):
@@ -107,7 +107,7 @@ class Decoder(nn.Module):
         if return_attentions:
             return decoder_output, decoder_self_attention_list, decoder_encoder_attention_list
 
-        return decoder_output
+        return decoder_output,
 
 
 class Transformer(nn.Module):
@@ -146,7 +146,7 @@ class Transformer(nn.Module):
         decoder_attention_mask = (get_pad_mask(decoder_input_ids, self.config.pad_idx) &
                                   get_subsequent_mask(decoder_input_ids))
 
-        encoder_output, *_ = self.decoder(input_ids, encoder_attention_mask)
+        encoder_output, *_ = self.encoder(input_ids, encoder_attention_mask)
         decoder_output, *_ = self.decoder(decoder_input_ids, decoder_attention_mask,
                                           encoder_output=encoder_output,
                                           encoder_attention_mask=encoder_attention_mask)
