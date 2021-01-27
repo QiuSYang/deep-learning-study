@@ -550,11 +550,13 @@ class Main(object):
                         writer.add_scalar("valid_rl", rl, global_step=steps)
                         if rl > best_rl:
                             best_rl = rl
-                            torch.save(self.model.module.state_dict(), f=args["save_path"])
+                            model_save = self.model.module if hasattr(self.model, "module") else self.model
+                            torch.save(model_save.state_dict(), f=args["save_path"])
                 else:
                     # 不进行验证直接保存模型
                     if steps % args["save_interval"] == 0:
-                        torch.save(self.model.module.state_dict(), f=args["save_path"])
+                        model_save = self.model.module if hasattr(self.model, "module") else self.model
+                        torch.save(model_save.state_dict(), f=args["save_path"])
                 if steps >= args["max_steps"]:
                     break
             if steps >= args["max_steps"]:
