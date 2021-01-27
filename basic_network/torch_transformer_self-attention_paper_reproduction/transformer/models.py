@@ -142,7 +142,9 @@ class Transformer(nn.Module):
             self.encoder.word_emb.weight = self.decoder.word_emb.weight
 
     def forward(self, input_ids, decoder_input_ids):
+        # encoder_attention_mask shape: [bts, 1, sqln]
         encoder_attention_mask = get_pad_mask(input_ids, self.config.pad_idx)
+        # decoder_attention_mask shape: [bts, sqln, sqln]
         decoder_attention_mask = (get_pad_mask(decoder_input_ids, self.config.pad_idx) &
                                   get_subsequent_mask(decoder_input_ids))
 

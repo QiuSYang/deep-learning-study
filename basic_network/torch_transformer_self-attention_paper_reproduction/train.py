@@ -92,6 +92,11 @@ def train(config: Transformer, model: Transformer, optimizer: ScheduledOptim,
         if eval_loader is not None:
             evaluate()
 
+        if epoch % config.save_epoch == 0:
+            model_save = model.module if hasattr(model, "module") else model
+            model_file = os.path.join(config.save_dir, "checkpoint_{}.pt".format(epoch))
+            torch.save(model_save.state_dict(), f=model_file)
+
     return model
 
 
@@ -131,12 +136,16 @@ def main():
                        help="最大解码序列长度")
     parse.add_argument("--history_turns", type=int, default=3,
                        help="历史对话轮数")
-    parse.add_argument("--batch_size", type=str, default=8,
+    parse.add_argument("--batch_size", type=str, default=24,
                        help="batch size 大小")
 
     # train parameter
     parse.add_argument("--epochs", type=int, default=10, help="训练epoch数量")
-    parse.add_argument('--init_lr', type=float, default=1.0, help="初始学习率")
+    parse.add_argument("--save_epoch", type=int, default=2, help="每训练多少epoch保存一次模型")
+    parse.add_argument("--save_dir", type=str,
+                       default=os.path.join(root, "model/transformer_0127"),
+                       help="模型保存路径")
+    parse.add_argument("--init_lr", type=float, default=1.0, help="初始学习率")
     parse.add_argument("--n_warmup_steps", type=int, default=100, help="热身步长")
     parse.add_argument("--label_smoothing", action="store_true",
                        default=False)
@@ -149,6 +158,9 @@ def main():
     args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args_dict = vars(args)
     config = TransformerConfig(**args_dict)
+
+    if not os.path.exists(config.save_dir):
+        os.makedirs(config.save_dir)  # 创建模型保存路径
 
     logger.info("Load dataset.")
     train_dataset = ChatDataset(config.train_data_path,

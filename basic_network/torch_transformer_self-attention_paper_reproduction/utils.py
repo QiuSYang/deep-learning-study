@@ -5,6 +5,7 @@ import torch
 
 
 def get_pad_mask(seq, pad_idx):
+    # [bts, 1, sqln]
     return (seq != pad_idx).unsqueeze(-2)  # 扩充到每个token attention都是一样的(encoder每个token的attention mask都一样)
 
 
@@ -13,7 +14,7 @@ def get_subsequent_mask(seq):
     sz_b, len_s = seq.size()
     subsequent_mask = (1 - torch.triu(
         torch.ones((1, len_s, len_s), device=seq.device), diagonal=1)).bool()
-
+    # [bts, sqln, sqln]
     return subsequent_mask
 
 
