@@ -40,12 +40,15 @@ def set_os_environ():
 
 def main():
     config = HyperParametersConfig()
+
     # set_os_environ()
     # if config.do_train and torch.cuda.device_count() > 1:
     #     # 分布式初始化
     #     torch.distributed.init_process_group(backend="nccl", rank=0, world_size=1,
     #                                          init_method='tcp://localhost:7002')
+
     # set_seed(config.seed)  # Trainer内部已经包含
+
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     # config_dict = HyperParametersConfig().__dict__
     # print(config_dict)
@@ -85,6 +88,7 @@ def main():
 
     logger.info("Training start.")
     if training_args.do_train:
+        logger.info("local rank value: {}".format(training_args.local_rank))
         trainer.train(model_path=model_args.model_name_or_path
                       if os.path.isdir(model_args.model_name_or_path) else None)
         trainer.save_model()
@@ -116,3 +120,14 @@ if __name__ == "__main__":
     logger.info("root dir: {}".format(root))
     results = main()
     logger.info("Train results: {}".format(results))
+
+    """
+    # DistributedDataParallel 启动脚本
+    CUDA_VISIBLE_DEVICES=4,5 python -m torch.distributed.launch \ 
+    --nproc_per_node=2 (有多少张可使用GPU卡)\ 
+    --nnodes=1 (节点数, 单机当然为1, 一般代表物理机数量)\ 
+    --node_rank=0 (指定当前节点的优先级)\ 
+    --master_addr="0.0.0.0" \ 
+    --master_port=23456 \ 
+    train.py
+    """
