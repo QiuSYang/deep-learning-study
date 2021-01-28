@@ -3,13 +3,17 @@
 """
 import os
 import logging
+from tqdm import tqdm
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data import DataLoader
 from transformers import BertTokenizer
 
 from transformer.models import Transformer
 from transformer.configs import TransformerConfig
+from chat_data_loader import ChatDataset
+from transformer.optim import ScheduledOptim
 
 logger = logging.getLogger(__name__)
 root = os.path.dirname(os.path.abspath(__file__))
@@ -50,9 +54,50 @@ def cal_performance(pred, gold, trg_pad_idx, smoothing=False):
     return loss, n_correct, n_word
 
 
-def train():
-    """tran functions"""
+def evaluate():
+    """evaluate function"""
     pass
+
+
+def train(config: Transformer, model: Transformer, optimizer: ScheduledOptim,
+          train_loader: DataLoader, eval_loader: DataLoader = None):
+    """train function"""
+    model.train()
+    for epoch in range(config.epochs):
+        logger.info("Epoch: {}".format(epoch))
+        total_loss, n_word_total, n_word_correct = 0, 0, 0
+        for ids, sample in enumerate(tqdm(train_loader)):
+            for k, v in sample.items():
+                sample[k] = v.to(config.device)
+            input_ids, decoder_input_ids, decoder_target_ids = (sample['input_ids'],
+                                                                sample['decode_input_ids'],
+                                                                sample['decode_label_ids'])
+            optimizer.zero_grad()
+            logits = model(input_ids, decoder_input_ids)
+            loss, n_correct, n_word = cal_performance(logits,
+                                                      gold=decoder_target_ids,
+                                                      trg_pad_idx=config.pad_idx,
+                                                      smoothing=config.label_smoothing)
+            loss.backward()
+            optimizer.step_and_update_lr()
+
+            # note keeping
+            n_word_total += n_word
+            n_word_correct += n_correct
+            total_loss += loss.item()
+        loss_per_word = total_loss / n_word_total
+        accuracy = n_word_correct / n_word_total
+        logger.info("The {} epoch train loss: {}, train accuray: {}".format(epoch, loss_per_word, accuracy))
+
+        if eval_loader is not None:
+            evaluate()
+
+        if epoch % config.save_epoch == 0:
+            model_save = model.module if hasattr(model, "module") else model
+            model_file = os.path.join(config.save_dir, "checkpoint_{}.pt".format(epoch))
+            torch.save(model_save.state_dict(), f=model_file)
+
+    return model
 
 
 def main():
@@ -85,18 +130,66 @@ def main():
                        help="训练数据路径")
     parse.add_argument("--evaluate_data_path", type=str, default=None,
                        help="评估数据路径")
+    parse.add_argument("--max_encode_len", type=int, default=192,
+                       help="最大编码序列长度")
+    parse.add_argument("--max_decode_len", type=int, default=64,
+                       help="最大解码序列长度")
+    parse.add_argument("--history_turns", type=int, default=3,
+                       help="历史对话轮数")
+    parse.add_argument("--batch_size", type=str, default=24,
+                       help="batch size 大小")
+
+    # train parameter
+    parse.add_argument("--epochs", type=int, default=10, help="训练epoch数量")
+    parse.add_argument("--save_epoch", type=int, default=2, help="每训练多少epoch保存一次模型")
+    parse.add_argument("--save_dir", type=str,
+                       default=os.path.join(root, "model/transformer_0127"),
+                       help="模型保存路径")
+    parse.add_argument("--init_lr", type=float, default=1.0, help="初始学习率")
+    parse.add_argument("--n_warmup_steps", type=int, default=100, help="热身步长")
+    parse.add_argument("--label_smoothing", action="store_true",
+                       default=False)
+
     args = parse.parse_args()
 
     tokenizer = BertTokenizer(vocab_file=args.vocab_path)
     args.vocab_size = tokenizer.vocab_size
     args.pad_idx = tokenizer._convert_token_to_id("[PAD]")
+    args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args_dict = vars(args)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     config = TransformerConfig(**args_dict)
+
+    if not os.path.exists(config.save_dir):
+        os.makedirs(config.save_dir)  # 创建模型保存路径
+
+    logger.info("Load dataset.")
+    train_dataset = ChatDataset(config.train_data_path,
+                                tokenizer=tokenizer,
+                                max_encode_len=config.max_encode_len,
+                                max_decode_len=config.max_decode_len,
+                                history_turns=config.history_turns)
+    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
+    if config.evaluate_data_path is not None:
+        eval_dataset = ChatDataset(config.evaluate_data_path,
+                                   tokenizer=tokenizer,
+                                   max_encode_len=config.max_encode_len,
+                                   max_decode_len=config.max_decode_len,
+                                   history_turns=config.history_turns)
+        eval_loader = DataLoader(eval_dataset, batch_size=config.batch_size, shuffle=False)
+    else:
+        eval_loader = False
+
+    logger.info("Load model.")
     model = Transformer(config=config)
-    model.to(device)
-    pass
+    model.to(config.device)
+
+    logger.info("Load optimizer.")
+    optimizer = ScheduledOptim(
+        optim.Adam(model.parameters(), betas=(0.9, 0.98), eps=1e-09),
+        config.init_lr, config.d_model, config.n_warmup_steps)
+
+    logger.info("Training model.")
+    train(config, model, optimizer, train_loader=train_loader, eval_loader=eval_loader)
 
 
 if __name__ == "__main__":
