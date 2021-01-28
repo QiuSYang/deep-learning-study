@@ -136,12 +136,14 @@ def main():
                        help="最大解码序列长度")
     parse.add_argument("--history_turns", type=int, default=3,
                        help="历史对话轮数")
+    parse.add_argument("--max_lines", type=int, default=525106,
+                       help="最多处理数据量")
     parse.add_argument("--batch_size", type=str, default=24,
                        help="batch size 大小")
 
     # train parameter
-    parse.add_argument("--epochs", type=int, default=10, help="训练epoch数量")
-    parse.add_argument("--save_epoch", type=int, default=2, help="每训练多少epoch保存一次模型")
+    parse.add_argument("--epochs", type=int, default=20, help="训练epoch数量")
+    parse.add_argument("--save_epoch", type=int, default=5, help="每训练多少epoch保存一次模型")
     parse.add_argument("--save_dir", type=str,
                        default=os.path.join(root, "model/transformer_0127"),
                        help="模型保存路径")
@@ -174,7 +176,8 @@ def main():
                                    tokenizer=tokenizer,
                                    max_encode_len=config.max_encode_len,
                                    max_decode_len=config.max_decode_len,
-                                   history_turns=config.history_turns)
+                                   history_turns=config.history_turns,
+                                   max_lines=config.max_lines)
         eval_loader = DataLoader(eval_dataset, batch_size=config.batch_size, shuffle=False)
     else:
         eval_loader = False
@@ -187,6 +190,9 @@ def main():
     optimizer = ScheduledOptim(
         optim.Adam(model.parameters(), betas=(0.9, 0.98), eps=1e-09),
         config.init_lr, config.d_model, config.n_warmup_steps)
+
+    logger.info("Save all config parameter.")
+    config.para_to_json(os.path.join(root, "data/para.json"))
 
     logger.info("Training model.")
     train(config, model, optimizer, train_loader=train_loader, eval_loader=eval_loader)

@@ -12,9 +12,11 @@ logger = logging.getLogger(__name__)
 
 class ChatDataset(Dataset):
     def __init__(self, data_path, tokenizer,
-                 max_encode_len=256, max_decode_len=128, history_turns=3):
+                 max_encode_len=256, max_decode_len=128,
+                 history_turns=3, max_lines=1000988):
         self.tokenizer = tokenizer
         self.history_turns = history_turns
+        self.max_lines = max_lines
         self.max_encode_len = max_encode_len
         self.max_decode_len = max_decode_len
 
@@ -93,6 +95,9 @@ class ChatDataset(Dataset):
                     single_dialogue = []
                 else:
                     single_dialogue.append(line)
+
+                if idx >= self.max_lines:
+                    break
 
             return samples
 

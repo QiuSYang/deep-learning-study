@@ -52,6 +52,10 @@ def top_filtering(logits, top_k=0., top_p=0.9, threshold=-float('Inf'), filter_v
     return logits
 
 
+def main():
+    pass
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG,
                         format='%(asctime)s - %(filename)s - %(levelname)s - %(message)s',
