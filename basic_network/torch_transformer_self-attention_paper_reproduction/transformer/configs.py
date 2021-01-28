@@ -14,7 +14,10 @@ class TransformerConfig(object):
             except AttributeError as error:
                 raise error
 
-    def para_to_json(self, save_path):
-        """将参数保存到json文件中"""
-        with open(save_path, mode='w', encoding='utf-8') as fw:
+    def to_json_string(self):
+        return json.dumps(self.__dict__, indent=2)
+
+    def save_para_to_json_file(self, json_file):
+        """参数保存至json文件"""
+        with open(json_file, mode='w', encoding='utf-8') as fw:
             json.dump(self.__dict__, fw, ensure_ascii=False, indent=2)

@@ -60,7 +60,7 @@ def evaluate():
 
 
 def train(config: Transformer, model: Transformer, optimizer: ScheduledOptim,
-          train_loader: DataLoader, eval_loader: DataLoader = None):
+          train_loader: DataLoader, eval_loader: DataLoader = None, device='cpu'):
     """train function"""
     model.train()
     for epoch in range(config.epochs):
@@ -68,7 +68,7 @@ def train(config: Transformer, model: Transformer, optimizer: ScheduledOptim,
         total_loss, n_word_total, n_word_correct = 0, 0, 0
         for ids, sample in enumerate(tqdm(train_loader)):
             for k, v in sample.items():
-                sample[k] = v.to(config.device)
+                sample[k] = v.to(device)
             input_ids, decoder_input_ids, decoder_target_ids = (sample['input_ids'],
                                                                 sample['decode_input_ids'],
                                                                 sample['decode_label_ids'])
@@ -138,7 +138,7 @@ def main():
                        help="历史对话轮数")
     parse.add_argument("--max_lines", type=int, default=525106,
                        help="最多处理数据量")
-    parse.add_argument("--batch_size", type=str, default=24,
+    parse.add_argument("--batch_size", type=int, default=32,
                        help="batch size 大小")
 
     # train parameter
@@ -157,7 +157,7 @@ def main():
     tokenizer = BertTokenizer(vocab_file=args.vocab_path)
     args.vocab_size = tokenizer.vocab_size
     args.pad_idx = tokenizer._convert_token_to_id("[PAD]")
-    args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     args_dict = vars(args)
     config = TransformerConfig(**args_dict)
 
@@ -169,7 +169,8 @@ def main():
                                 tokenizer=tokenizer,
                                 max_encode_len=config.max_encode_len,
                                 max_decode_len=config.max_decode_len,
-                                history_turns=config.history_turns)
+                                history_turns=config.history_turns,
+                                max_lines=config.max_lines)
     train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
     if config.evaluate_data_path is not None:
         eval_dataset = ChatDataset(config.evaluate_data_path,
@@ -183,8 +184,9 @@ def main():
         eval_loader = False
 
     logger.info("Load model.")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 标准写法
     model = Transformer(config=config)
-    model.to(config.device)
+    model.to(device)
 
     logger.info("Load optimizer.")
     optimizer = ScheduledOptim(
@@ -192,10 +194,10 @@ def main():
         config.init_lr, config.d_model, config.n_warmup_steps)
 
     logger.info("Save all config parameter.")
-    config.para_to_json(os.path.join(root, "data/para.json"))
+    config.save_para_to_json_file(os.path.join(root, "data/para.json"))
 
     logger.info("Training model.")
-    train(config, model, optimizer, train_loader=train_loader, eval_loader=eval_loader)
+    train(config, model, optimizer, train_loader=train_loader, eval_loader=eval_loader, device=device)
 
 
 if __name__ == "__main__":

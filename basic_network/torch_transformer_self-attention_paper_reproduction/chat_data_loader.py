@@ -45,7 +45,7 @@ class ChatDataset(Dataset):
                 history_dialogue = dialogue[:idx]
             for history in history_dialogue[::-1]:  # 逆序访问
                 current_tokens = self.tokenizer.tokenize(history)
-                if len(context_tokens) + len(context_tokens) <= self.max_encode_len:
+                if len(context_tokens) + len(current_tokens) < self.max_encode_len:
                     context_tokens = current_tokens + context_tokens  # 切词
                     context_tokens = ["[SEP]"] + context_tokens
                 else:
