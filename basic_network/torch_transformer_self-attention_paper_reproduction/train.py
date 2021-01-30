@@ -54,15 +54,36 @@ def cal_performance(pred, gold, trg_pad_idx, smoothing=False):
     return loss, n_correct, n_word
 
 
-def evaluate():
+def evaluate(config: Transformer, model: Transformer,
+             eval_loader: DataLoader, device='cpu'):
     """evaluate function"""
-    pass
+    model.eval()
+    with torch.no_grad():
+        total_eval_loss, n_word_correct, n_word_total = 0.0, 0, 0
+        for ids, sample in enumerate(tqdm(eval_loader)):
+            input_ids, decoder_input_ids, decoder_target_ids = (sample['input_ids'].to(device),
+                                                                sample['decode_input_ids'].to(device),
+                                                                sample['decode_label_ids'].to(device))
+            logits = model(input_ids, decoder_input_ids)
+            loss, n_correct, n_word = cal_performance(logits,
+                                                      gold=decoder_target_ids,
+                                                      trg_pad_idx=config.pad_idx,
+                                                      smoothing=config.label_smoothing)
+            total_eval_loss += loss.item()
+            n_word_correct += n_correct
+            n_word_total += n_word
+
+        average_loss = total_eval_loss / n_word_total
+        accuracy = n_word_correct / n_word_total
+
+        return average_loss, accuracy
 
 
 def train(config: Transformer, model: Transformer, optimizer: ScheduledOptim,
           train_loader: DataLoader, eval_loader: DataLoader = None, device='cpu'):
     """train function"""
     model.train()
+    best_eval_accuracy = -float('inf')
     for epoch in range(config.epochs):
         logger.info("Epoch: {}".format(epoch))
         total_loss, n_word_total, n_word_correct = 0, 0, 0
@@ -90,7 +111,14 @@ def train(config: Transformer, model: Transformer, optimizer: ScheduledOptim,
         logger.info("The {} epoch train loss: {}, train accuray: {}".format(epoch, loss_per_word, accuracy))
 
         if eval_loader is not None:
-            evaluate()
+            eval_loss, eval_accuracy = evaluate(config, model, eval_loader=eval_loader, device=device)
+            if eval_accuracy > best_eval_accuracy:
+                best_eval_accuracy = eval_accuracy
+
+                # 保存最佳模型
+                model_save = model.module if hasattr(model, "module") else model
+                model_file = os.path.join(config.save_dir, "checkpoint_{}.pt".format(epoch))
+                torch.save(model_save.state_dict(), f=model_file)
 
         if epoch % config.save_epoch == 0:
             model_save = model.module if hasattr(model, "module") else model
