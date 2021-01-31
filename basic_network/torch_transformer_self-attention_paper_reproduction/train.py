@@ -83,7 +83,7 @@ def train(config: Transformer, model: Transformer, optimizer: ScheduledOptim,
           train_loader: DataLoader, eval_loader: DataLoader = None, device='cpu'):
     """train function"""
     model.train()
-    best_eval_accuracy = -float('inf')
+    best_eval_accuracy = -float('Inf')
     for epoch in range(config.epochs):
         logger.info("Epoch: {}".format(epoch))
         total_loss, n_word_total, n_word_correct = 0, 0, 0
