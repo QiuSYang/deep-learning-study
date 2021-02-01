@@ -32,7 +32,7 @@ class KnowledgePointExtractionModel(PreTrainedModel):
         self.kpe_mlp = MLP(size_layer=config.mlp_layer_sizes,
                            activation='relu',
                            output_activation=None)
-        # crf_labels = {0: "S", 1: "B", 2: "M", 3: "E", 4: "start", 5: "end", 6: "<pad>"}
+        # crf_labels = {0: "S", 1: "B", 2: "M", 3: "E", 4: "<pad>"}
         trans = allowed_transitions(tag_vocab=config.crf_labels, include_start_end=True)
         self.kpe_crf = ConditionalRandomField(num_tags=len(config.crf_labels),
                                               include_start_end_trans=True,
