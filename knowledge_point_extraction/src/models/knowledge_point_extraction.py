@@ -28,11 +28,12 @@ class KnowledgePointExtractionModel(PreTrainedModel):
         super(KnowledgePointExtractionModel, self).__init__(config=config)
 
         self.embedding = BertModel(config=config)
-        # MLP输入输出向量size
+        # MLP输入输出向量size, mlp_layer_sizes: [hidden_size, middle_size1, middle_size2, len(config.crf_labels)]
         self.kpe_mlp = MLP(size_layer=config.mlp_layer_sizes,
                            activation='relu',
                            output_activation=None)
-        trans = allowed_transitions(tag_vocab=len(config.crf_labels), include_start_end=True)
+        # crf_labels = {0: "S", 1: "B", 2: "M", 3: "E", 4: "start", 5: "end", 6: "<pad>"}
+        trans = allowed_transitions(tag_vocab=config.crf_labels, include_start_end=True)
         self.kpe_crf = ConditionalRandomField(num_tags=len(config.crf_labels),
                                               include_start_end_trans=True,
                                               allowed_transitions=trans)
