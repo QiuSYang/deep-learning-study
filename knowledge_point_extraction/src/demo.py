@@ -7,7 +7,7 @@ from fastHan import FastHan
 def fasthan_cws():
     model = FastHan()
     sentence = "郭靖是金庸笔下的一名男主。"
-    result = model(sentence, 'CWS')
+    result = model(sentence, 'CWS', use_dict=False)
     print(result)
 
 
@@ -17,15 +17,24 @@ def kpe():
 
     config = BertConfig.from_pretrained("hfl/chinese-bert-wwm")
     config.crf_labels = {0: "S", 1: "B", 2: "M", 3: "E", 4: "<pad>"}
-    config.mlp_layer_sizes = [config.hidden_size,
-                              config.hidden_size//2,
-                              config.hidden_size//2//2,
-                              config.hidden_size//2//2//2,
-                              len(config.crf_labels)]
+    # config.mlp_layer_sizes = [config.hidden_size,
+    #                           config.hidden_size//2,
+    #                           config.hidden_size//2//2,
+    #                           config.hidden_size//2//2//2,
+    #                           len(config.crf_labels)]
+    mlp_hidden_num = 5
+    mlp_layer_sizes = []
+    for i in range(mlp_hidden_num):
+        if i == mlp_hidden_num - 1:
+            mlp_layer_sizes.append(len(config.crf_labels))
+        else:
+            mlp_layer_sizes.append(config.hidden_size//(2**i))
+    config.mlp_layer_sizes = mlp_layer_sizes
 
     model = KnowledgePointExtractionModel(config=config)
     pass
 
 
 if __name__ == "__main__":
-    kpe()
+    # kpe()
+    fasthan_cws()

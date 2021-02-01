@@ -27,7 +27,7 @@ class KnowledgePointExtractionModel(PreTrainedModel):
     def __init__(self, config: BertConfig):
         super(KnowledgePointExtractionModel, self).__init__(config=config)
 
-        self.embedding = BertModel(config=config)
+        self.embedding = BertModel(config=config, add_pooling_layer=False)
         # MLP输入输出向量size, mlp_layer_sizes: [hidden_size, middle_size1, middle_size2, len(config.crf_labels)]
         self.kpe_mlp = MLP(size_layer=config.mlp_layer_sizes,
                            activation='relu',
@@ -47,10 +47,25 @@ class KnowledgePointExtractionModel(PreTrainedModel):
         embedding_output = bert_outputs.last_hidden_state
 
         mlp_outputs = self.kpe_mlp(embedding_output)
-        logits = F.softmax(mlp_outputs, dim=-1)
+        logits = F.log_softmax(mlp_outputs, dim=-1)
 
         if attention_mask is None:
             attention_mask = input_ids.ne(0)
         crf_outputs = self.kpe_crf(logits, labels, mask=attention_mask)
 
         return {"loss": crf_outputs}
+
+    def predict(self, input_ids, attention_mask=None):
+        """预测函数"""
+        bert_outputs = self.embedding(input_ids, attention_mask=attention_mask, return_dict=True)
+        embedding_output = bert_outputs.last_hidden_state
+
+        mlp_outputs = self.kpe_mlp(embedding_output)
+        logits = F.log_softmax(mlp_outputs, dim=-1)
+
+        if attention_mask is None:
+            attention_mask = input_ids.ne(0)
+
+        paths, _ = self.kpe_crf.viterbi_decode(logits, attention_mask)
+
+        return {'pred': paths}
