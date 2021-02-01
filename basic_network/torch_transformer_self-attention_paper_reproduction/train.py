@@ -54,21 +54,42 @@ def cal_performance(pred, gold, trg_pad_idx, smoothing=False):
     return loss, n_correct, n_word
 
 
-def evaluate():
+def evaluate(config: Transformer, model: Transformer,
+             eval_loader: DataLoader, device='cpu'):
     """evaluate function"""
-    pass
+    model.eval()
+    with torch.no_grad():
+        total_eval_loss, n_word_correct, n_word_total = 0.0, 0, 0
+        for ids, sample in enumerate(tqdm(eval_loader)):
+            input_ids, decoder_input_ids, decoder_target_ids = (sample['input_ids'].to(device),
+                                                                sample['decode_input_ids'].to(device),
+                                                                sample['decode_label_ids'].to(device))
+            logits = model(input_ids, decoder_input_ids)
+            loss, n_correct, n_word = cal_performance(logits,
+                                                      gold=decoder_target_ids,
+                                                      trg_pad_idx=config.pad_idx,
+                                                      smoothing=config.label_smoothing)
+            total_eval_loss += loss.item()
+            n_word_correct += n_correct
+            n_word_total += n_word
+
+        average_loss = total_eval_loss / n_word_total
+        accuracy = n_word_correct / n_word_total
+
+        return average_loss, accuracy
 
 
 def train(config: Transformer, model: Transformer, optimizer: ScheduledOptim,
-          train_loader: DataLoader, eval_loader: DataLoader = None):
+          train_loader: DataLoader, eval_loader: DataLoader = None, device='cpu'):
     """train function"""
     model.train()
+    best_eval_accuracy = -float('Inf')
     for epoch in range(config.epochs):
         logger.info("Epoch: {}".format(epoch))
         total_loss, n_word_total, n_word_correct = 0, 0, 0
         for ids, sample in enumerate(tqdm(train_loader)):
             for k, v in sample.items():
-                sample[k] = v.to(config.device)
+                sample[k] = v.to(device)
             input_ids, decoder_input_ids, decoder_target_ids = (sample['input_ids'],
                                                                 sample['decode_input_ids'],
                                                                 sample['decode_label_ids'])
@@ -90,7 +111,14 @@ def train(config: Transformer, model: Transformer, optimizer: ScheduledOptim,
         logger.info("The {} epoch train loss: {}, train accuray: {}".format(epoch, loss_per_word, accuracy))
 
         if eval_loader is not None:
-            evaluate()
+            eval_loss, eval_accuracy = evaluate(config, model, eval_loader=eval_loader, device=device)
+            if eval_accuracy > best_eval_accuracy:
+                best_eval_accuracy = eval_accuracy
+
+                # 保存最佳模型
+                model_save = model.module if hasattr(model, "module") else model
+                model_file = os.path.join(config.save_dir, "checkpoint_{}.pt".format(epoch))
+                torch.save(model_save.state_dict(), f=model_file)
 
         if epoch % config.save_epoch == 0:
             model_save = model.module if hasattr(model, "module") else model
@@ -136,12 +164,14 @@ def main():
                        help="最大解码序列长度")
     parse.add_argument("--history_turns", type=int, default=3,
                        help="历史对话轮数")
-    parse.add_argument("--batch_size", type=str, default=24,
+    parse.add_argument("--max_lines", type=int, default=525106,
+                       help="最多处理数据量")
+    parse.add_argument("--batch_size", type=int, default=32,
                        help="batch size 大小")
 
     # train parameter
-    parse.add_argument("--epochs", type=int, default=10, help="训练epoch数量")
-    parse.add_argument("--save_epoch", type=int, default=2, help="每训练多少epoch保存一次模型")
+    parse.add_argument("--epochs", type=int, default=20, help="训练epoch数量")
+    parse.add_argument("--save_epoch", type=int, default=5, help="每训练多少epoch保存一次模型")
     parse.add_argument("--save_dir", type=str,
                        default=os.path.join(root, "model/transformer_0127"),
                        help="模型保存路径")
@@ -155,7 +185,7 @@ def main():
     tokenizer = BertTokenizer(vocab_file=args.vocab_path)
     args.vocab_size = tokenizer.vocab_size
     args.pad_idx = tokenizer._convert_token_to_id("[PAD]")
-    args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     args_dict = vars(args)
     config = TransformerConfig(**args_dict)
 
@@ -167,29 +197,35 @@ def main():
                                 tokenizer=tokenizer,
                                 max_encode_len=config.max_encode_len,
                                 max_decode_len=config.max_decode_len,
-                                history_turns=config.history_turns)
+                                history_turns=config.history_turns,
+                                max_lines=config.max_lines)
     train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
     if config.evaluate_data_path is not None:
         eval_dataset = ChatDataset(config.evaluate_data_path,
                                    tokenizer=tokenizer,
                                    max_encode_len=config.max_encode_len,
                                    max_decode_len=config.max_decode_len,
-                                   history_turns=config.history_turns)
+                                   history_turns=config.history_turns,
+                                   max_lines=config.max_lines)
         eval_loader = DataLoader(eval_dataset, batch_size=config.batch_size, shuffle=False)
     else:
         eval_loader = False
 
     logger.info("Load model.")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 标准写法
     model = Transformer(config=config)
-    model.to(config.device)
+    model.to(device)
 
     logger.info("Load optimizer.")
     optimizer = ScheduledOptim(
         optim.Adam(model.parameters(), betas=(0.9, 0.98), eps=1e-09),
         config.init_lr, config.d_model, config.n_warmup_steps)
 
+    logger.info("Save all config parameter.")
+    config.save_para_to_json_file(os.path.join(root, "data/para.json"))
+
     logger.info("Training model.")
-    train(config, model, optimizer, train_loader=train_loader, eval_loader=eval_loader)
+    train(config, model, optimizer, train_loader=train_loader, eval_loader=eval_loader, device=device)
 
 
 if __name__ == "__main__":
