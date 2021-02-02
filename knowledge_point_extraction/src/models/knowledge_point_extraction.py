@@ -7,6 +7,7 @@ import torch
 import torch.nn.functional as F
 from transformers import (
     PreTrainedModel,
+    BertPreTrainedModel,
     BertModel,
     BertConfig
 )
@@ -19,7 +20,7 @@ from fastNLP.modules import (
 logger = logging.getLogger(__name__)
 
 
-class KnowledgePointExtractionModel(PreTrainedModel):
+class KnowledgePointExtractionModel(BertPreTrainedModel):
     """知识抽取---参照序列标注模型
         1. Embedding - 8 layer以下bert model,
         2. multi layer MLP 线性变换
