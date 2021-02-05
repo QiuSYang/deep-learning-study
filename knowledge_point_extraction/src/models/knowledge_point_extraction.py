@@ -28,7 +28,7 @@ class KnowledgePointExtractionModel(BertPreTrainedModel):
     def __init__(self, config: BertConfig):
         super(KnowledgePointExtractionModel, self).__init__(config=config)
 
-        self.embedding = BertModel(config=config, add_pooling_layer=False)
+        self.bert = BertModel(config=config, add_pooling_layer=False)  # word to vector(embeddings)
         # MLP输入输出向量size, mlp_layer_sizes: [hidden_size, middle_size1, middle_size2, len(config.crf_labels)]
         self.kpe_mlp = MLP(size_layer=config.mlp_layer_sizes,
                            activation='relu',
@@ -44,7 +44,7 @@ class KnowledgePointExtractionModel(BertPreTrainedModel):
                 labels,
                 attention_mask=None):
         """前向传播"""
-        bert_outputs = self.embedding(input_ids, attention_mask=attention_mask, return_dict=True)
+        bert_outputs = self.bert(input_ids, attention_mask=attention_mask, return_dict=True)
         embedding_output = bert_outputs.last_hidden_state
 
         mlp_outputs = self.kpe_mlp(embedding_output)
@@ -58,7 +58,7 @@ class KnowledgePointExtractionModel(BertPreTrainedModel):
 
     def predict(self, input_ids, attention_mask=None):
         """预测函数"""
-        bert_outputs = self.embedding(input_ids, attention_mask=attention_mask, return_dict=True)
+        bert_outputs = self.bert(input_ids, attention_mask=attention_mask, return_dict=True)
         embedding_output = bert_outputs.last_hidden_state
 
         mlp_outputs = self.kpe_mlp(embedding_output)
