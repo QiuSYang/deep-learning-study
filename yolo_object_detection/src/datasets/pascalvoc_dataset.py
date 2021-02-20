@@ -293,10 +293,10 @@ def gt_data_encoder(boxes, labels, grid_num=YoloV1Config.GRID_NUM):
         cxcy_sample = cxcy[i]
         # 计算属于格子的第几行第几列(向上取整但还要减一，实际就是1.5对应1-向上为2，再减1到1)
         ij = (cxcy_sample / cell_size).ceil() - 1
-        # B1、B2、C 标记为1
+        # B1、B2、C 标记为1(候选框的标签)
         target[int(ij[1]), int(ij[0]), 4] = 1
         target[int(ij[1]), int(ij[0]), 9] = 1
-        # int(labels[i]) + 10
+        # int(labels[i]) + 10(当前格点物体类别)
         target[int(ij[1]), int(ij[0]), int(labels[i]) + 10] = 1
         # 匹配到的网格的左上角相对坐标
         xy = ij * cell_size
