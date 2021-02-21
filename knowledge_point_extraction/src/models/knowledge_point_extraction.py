@@ -33,7 +33,7 @@ class KnowledgePointExtractionModel(BertPreTrainedModel):
         self.kpe_mlp = MLP(size_layer=config.mlp_layer_sizes,
                            activation='relu',
                            output_activation=None)
-        # crf_labels = {0: "S", 1: "B", 2: "M", 3: "E", 4: "<pad>"}
+        # crf_labels = {0:"<pad>", 1: "S", 2: "B", 3: "M", 4: "E"} (id2label)
         trans = allowed_transitions(tag_vocab=config.crf_labels, include_start_end=True)
         self.kpe_crf = ConditionalRandomField(num_tags=len(config.crf_labels),
                                               include_start_end_trans=True,
@@ -67,6 +67,6 @@ class KnowledgePointExtractionModel(BertPreTrainedModel):
         if attention_mask is None:
             attention_mask = input_ids.ne(0)
 
-        paths, _ = self.kpe_crf.viterbi_decode(logits, attention_mask)
+        paths, _ = self.kpe_crf.viterbi_decode(logits, mask=attention_mask)
 
         return {'pred': paths}

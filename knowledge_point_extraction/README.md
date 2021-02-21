@@ -15,3 +15,4 @@ BEMS标注示例
 参考链接：
     
     1. https://github.com/fastnlp/fastHan(主要借助这个库接口实现, 以及训练好的预训练模型)
+    2. https://tianchi.aliyun.com/competition/entrance/531826/introduction?spm=5176.12281957.1004.6.656f3eafwnSNkk(天池中医问题生成数据集)
