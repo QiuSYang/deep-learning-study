@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import Dataset
 from transformers import BertTokenizer
 
-logger = logging.getLogger(__file__)
+logger = logging.getLogger(__name__)
 
 
 class ChineseMedicalAnswerExtractionDataset(Dataset):

@@ -35,6 +35,20 @@ def kpe():
     pass
 
 
+def transformer_output():
+    import torch
+    from transformers.models.bert.modeling_bert import BertForPreTrainingOutput
+
+    output = BertForPreTrainingOutput(
+        loss=10,
+        prediction_logits=torch.tensor([0.1, 0.2, 0.7])
+    )
+
+    if isinstance(output, dict):
+        print(output.get("loss"))
+
+
 if __name__ == "__main__":
     # kpe()
-    fasthan_cws()
+    # fasthan_cws()
+    transformer_output()
