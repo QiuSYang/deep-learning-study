@@ -34,6 +34,12 @@ class KnowledgePointExtractionModel(BertPreTrainedModel):
                            activation='relu',
                            output_activation=None)
         # crf_labels = {0:"<pad>", 1: "S", 2: "B", 3: "M", 4: "E"} (id2label)
+        tag_labels = {}
+        for key, value in config.crf_labels.items():
+            if not isinstance(key, int):
+                tag_labels[int(key)] = value
+        if tag_labels:
+            config.crf_labels = tag_labels
         trans = allowed_transitions(tag_vocab=config.crf_labels, include_start_end=True)
         self.kpe_crf = ConditionalRandomField(num_tags=len(config.crf_labels),
                                               include_start_end_trans=True,
@@ -41,7 +47,7 @@ class KnowledgePointExtractionModel(BertPreTrainedModel):
 
     def forward(self,
                 input_ids,
-                labels,
+                labels=None,
                 attention_mask=None):
         """前向传播"""
         bert_outputs = self.bert(input_ids, attention_mask=attention_mask, return_dict=True)
@@ -52,21 +58,16 @@ class KnowledgePointExtractionModel(BertPreTrainedModel):
 
         if attention_mask is None:
             attention_mask = input_ids.ne(0)
-        crf_outputs = self.kpe_crf(logits, labels, mask=attention_mask)
+        if labels is not None:
+            # train
+            crf_outputs = self.kpe_crf(logits, labels, mask=attention_mask)
+            # logger.info("loss shape: {}".format(crf_outputs.shape))
+            loss = crf_outputs.sum() / attention_mask.type_as(input_ids).sum()  # token loss
+            # logger.info("loss value: {}".format(loss))
+            return (loss, )  # {"loss": loss}  # 4.0以上版本
+        else:
+            # inference
+            paths, _ = self.kpe_crf.viterbi_decode(logits, mask=attention_mask)
+            return {"pred": paths}
 
-        return {"loss": crf_outputs}
-
-    def predict(self, input_ids, attention_mask=None):
-        """预测函数"""
-        bert_outputs = self.bert(input_ids, attention_mask=attention_mask, return_dict=True)
-        embedding_output = bert_outputs.last_hidden_state
-
-        mlp_outputs = self.kpe_mlp(embedding_output)
-        logits = F.log_softmax(mlp_outputs, dim=-1)
-
-        if attention_mask is None:
-            attention_mask = input_ids.ne(0)
-
-        paths, _ = self.kpe_crf.viterbi_decode(logits, mask=attention_mask)
-
-        return {'pred': paths}
+        return logits
