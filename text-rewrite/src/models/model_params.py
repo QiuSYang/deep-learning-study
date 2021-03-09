@@ -21,17 +21,18 @@ BASE_PARAMS = defaultdict(
     lambda: None,  # Set default value to None.
 
     # Input params
-    default_batch_size=2048,  # Maximum number of tokens per batch of examples.
-    default_batch_size_tpu=32768,
-    max_length=256,  # Maximum number of tokens per example.
+    default_batch_size=64,  # Maximum number of tokens per batch of examples.
+    default_batch_size_tpu=64,
+    max_length_source=128,  # Maximum number of tokens per example.
+    max_length_target=32,
 
     # Model params
     initializer_gain=1.0,  # Used in trainable variable initialization.
-    vocab_size=33708,  # Number of tokens defined in the vocabulary file.
-    hidden_size=512,  # Model dimension in the hidden layers.
+    vocab_size=21128,  # Number of tokens defined in the vocabulary file.
+    hidden_size=256,  # Model dimension in the hidden layers.
     num_hidden_layers=6,  # Number of layers in the encoder and decoder stacks.
     num_heads=8,  # Number of heads to use in multi-headed attention.
-    filter_size=2048,  # Inner layer dimension in the feedforward network.
+    filter_size=1024,  # Inner layer dimension in the feedforward network.
 
     # Dropout values (only used when training)
     layer_postprocess_dropout=0.1,
@@ -40,9 +41,9 @@ BASE_PARAMS = defaultdict(
 
     # Training params
     label_smoothing=0.1,
-    learning_rate=2.0,
+    learning_rate=0.5,
     learning_rate_decay_rate=1.0,
-    learning_rate_warmup_steps=16000,
+    learning_rate_warmup_steps=1000,
 
     # Optimizer params
     optimizer_adam_beta1=0.9,
@@ -88,9 +89,9 @@ BIG_MULTI_GPU_PARAMS.update(
 # Parameters for testing the model
 TINY_PARAMS = BASE_PARAMS.copy()
 TINY_PARAMS.update(
-    default_batch_size=1024,
-    default_batch_size_tpu=1024,
-    hidden_size=32,
-    num_heads=4,
-    filter_size=256,
+    default_batch_size=64,
+    default_batch_size_tpu=64,
+    hidden_size=256,
+    num_heads=8,
+    filter_size=1024,
 )

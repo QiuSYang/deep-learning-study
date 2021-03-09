@@ -20,9 +20,9 @@ Transformer model code source: https://github.com/tensorflow/tensor2tensor
 
 import tensorflow as tf
 from official.nlp.modeling.layers import position_embedding
-from official.nlp.modeling.ops import beam_search
-from official.nlp.transformer.utils.tokenizer import EOS_ID
 
+from src.models import beam_search
+from src.utils.tokenizer import EOS_ID
 from src.models import model_utils
 from src.models import attention_layer
 from src.models import embedding_layer
@@ -34,14 +34,18 @@ from src.models import metrics
 # pylint: disable=not-callable
 
 
-def create_model(params, is_train):
+def create_model(params, is_train=False):
   """Creates transformer model."""
   with tf.name_scope("model"):
     if is_train:
-      inputs = tf.keras.layers.Input((None,), dtype="int64", name="inputs")
-      targets = tf.keras.layers.Input((None,), dtype="int64", name="targets")
+      inputs = tf.keras.layers.Input((None,), dtype="int32", name="inputs")
+      segments = tf.keras.layers.Input((None,), dtype="int32", name="segments")
+      masks = tf.keras.layers.Input((None,), dtype="int32", name="masks")
+      targets = tf.keras.layers.Input((None,), dtype="int32", name="targets")
+
       internal_model = Transformer(params, name="transformer_v2")
-      logits = internal_model([inputs, targets], training=is_train)
+      logits = internal_model([inputs, segments, masks, targets], training=is_train)
+
       vocab_size = params["vocab_size"]
       label_smoothing = params["label_smoothing"]
       if params["enable_metrics_in_training"]:
@@ -49,18 +53,22 @@ def create_model(params, is_train):
       logits = tf.keras.layers.Lambda(
           lambda x: x, name="logits", dtype=tf.float32)(
               logits)
-      model = tf.keras.Model([inputs, targets], logits)
+      model = tf.keras.Model([inputs, segments, masks, targets], logits)
       loss = metrics.transformer_loss(logits, targets, label_smoothing,
                                       vocab_size)
       model.add_loss(loss)
       return model
 
     else:
-      inputs = tf.keras.layers.Input((None,), dtype="int64", name="inputs")
+      inputs = tf.keras.layers.Input((None,), dtype="int32", name="inputs")
+      segments = tf.keras.layers.Input((None,), dtype="int32", name="segments")
+      masks = tf.keras.layers.Input((None,), dtype="int32", name="masks")
+
       internal_model = Transformer(params, name="transformer_v2")
-      ret = internal_model([inputs], training=is_train)
+      ret = internal_model([inputs, segments, masks], training=is_train)
+
       outputs, scores = ret["outputs"], ret["scores"]
-      return tf.keras.Model(inputs, [outputs, scores])
+      return tf.keras.Model([inputs, segments, masks], [outputs, scores])
 
 
 class Transformer(tf.keras.Model):
@@ -400,10 +408,11 @@ class Transformer(tf.keras.Model):
 class PrePostProcessingWrapper(tf.keras.layers.Layer):
   """Wrapper class that applies layer pre-processing and post-processing."""
 
-  def __init__(self, layer, params):
+  def __init__(self, layer, params, residual=True):
     super(PrePostProcessingWrapper, self).__init__()
     self.layer = layer
     self.params = params
+    self.residual = residual
     self.postprocess_dropout = params["layer_postprocess_dropout"]
 
   def build(self, input_shape):
@@ -430,6 +439,8 @@ class PrePostProcessingWrapper(tf.keras.layers.Layer):
     # Postprocessing: apply dropout and residual connection
     if training:
       y = tf.nn.dropout(y, rate=self.postprocess_dropout)
+    if not self.residual:
+        return y
     return x + y
 
 
@@ -537,7 +548,7 @@ class DecoderStack(tf.keras.layers.Layer):
       self.layers.append([
           PrePostProcessingWrapper(self_attention_layer, params),
           PrePostProcessingWrapper(enc_dec_attention_layer, params),
-          PrePostProcessingWrapper(feed_forward_network, params)
+          PrePostProcessingWrapper(feed_forward_network, params, residual=False)
       ])
 
     # self.output_normalization = tf.keras.layers.LayerNormalization(
@@ -690,8 +701,9 @@ class DistributeLayer(tf.keras.layers.Layer):
     Returns:
       probs: float tensor with shape (bs, max_len_m, vocab_size)
     """
-    batch_size = tf.shape(att_weights)[0]
-    attn_len = att_weights.get_shape().as_list()[-1]  # max_len
+    att_weights_shape = tf.shape(att_weights)
+    batch_size = att_weights_shape[0]
+    attn_len = att_weights_shape[-1]  # att_weights.get_shape().as_list()[-1]  # max_len
 
     def _copy_dist(att_weight, encode_input):
       """
@@ -700,7 +712,7 @@ class DistributeLayer(tf.keras.layers.Layer):
         encode_input: float tensor with shape (bs*max_len_m, max_len_e)
       """
       batch_size_ = tf.shape(att_weights)[0]
-      batch_nums = tf.range(0, batch_size_)
+      batch_nums = tf.range(0, batch_size_, dtype="int32")
       batch_nums = tf.expand_dims(batch_nums, axis=1)
       batch_nums = tf.tile(batch_nums, [1, attn_len])
 
@@ -715,11 +727,11 @@ class DistributeLayer(tf.keras.layers.Layer):
     max_len_tgt = tf.shape(att_weights)[1]
     encode_inputs = tf.expand_dims(encode_inputs, axis=1)
     encode_inputs = tf.tile(encode_inputs, [1, max_len_tgt, 1])  # 计算解码端每个token与编码端所以token attention
-    encode_inputs = tf.reshape(encode_inputs, shape=(-1, attn_len))
-    att_weights = tf.reshape(att_weights, shape=(-1, attn_len))
+    encode_inputs = tf.reshape(encode_inputs, shape=[-1, attn_len])
+    att_weights = tf.reshape(att_weights, shape=[-1, attn_len])
 
     probs = _copy_dist(att_weights, encode_inputs)  # (bs*max_len_m, vocab_size)
-    probs = tf.reshape(probs, shape=(batch_size, max_len_tgt, -1))
+    probs = tf.reshape(probs, shape=[batch_size, max_len_tgt, -1])
 
     return probs
 
