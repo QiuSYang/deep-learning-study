@@ -318,10 +318,10 @@ def init_dataset_from_text_file(
     inputs_ids = [CLS_ID] + [EOS_ID] + query_ids + [SEP_ID] + content_ids
     inputs_ids = inputs_ids[:max_length_source]
     query_len = len(query_ids) + 3
-    mask = ([1] * query_len)[:max_length_source]
+    mask = ([1] * query_len)[:max_length_source]  # only query visible
 
     # segment
-    segment = [0] * query_len + [1] * (len(items[0]) + 1) + [2] * len(items[1])
+    segment = [1] * query_len + [2] * (len(items[0]) + 1) + [3] * len(items[1])
     segment = segment[:max_length_source]
 
     query_rewrited_ids = convert_tokens_to_ids(vocab, query_rewrited)

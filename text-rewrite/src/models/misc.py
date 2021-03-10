@@ -90,10 +90,6 @@ def define_transformer_flags():
       default=False,
       help='Whether to enable Tensorboard callback.')
   flags.DEFINE_boolean(
-      name='enable_metrics_in_training',
-      default=False,
-      help='Whether to enable metrics during training.')
-  flags.DEFINE_boolean(
       name='enable_mlir_bridge',
       default=False,
       help='Whether to enable the TF to XLA bridge.')
@@ -127,14 +123,6 @@ def define_transformer_flags():
           'minimized, and helps model training. In cases where the input shape '
           'must be static (e.g. running on TPU), this setting will be ignored '
           'and static batching will always be used.'))
-  # flags.DEFINE_integer(
-  #     name='max_length',
-  #     short_name='ml',
-  #     default=256,
-  #     help=flags_core.help_wrap(
-  #         'Max sentence length for Transformer. Default is 256. Note: Usually '
-  #         'it is more effective to use a smaller max length if static_batch is '
-  #         'enabled, e.g. 64.'))
 
   # Flags for training with steps (may be used for debugging)
   flags.DEFINE_integer(
@@ -187,23 +175,6 @@ def define_transformer_flags():
       help=flags_core.help_wrap(
           'Global batch size used for Transformer autoregressive decoding on '
           'TPU.'))
-  # flags.DEFINE_integer(
-  #     name='decode_max_length',
-  #     default=97,
-  #     help=flags_core.help_wrap(
-  #         'Max sequence length of the decode/eval data. This is used by '
-  #         'Transformer autoregressive decoding on TPU to have minimum '
-  #         'paddings.'))
-  flags.DEFINE_bool(
-      name='padded_decode',
-      default=False,
-      help=flags_core.help_wrap(
-          'Whether the autoregressive decoding runs with input data padded to '
-          'the decode_max_length. For TPU/XLA-GPU runs, this flag has to be '
-          'set due the static shape requirement. Although CPU/GPU could also '
-          'use padded_decode, it has not been tested. In addition, this method '
-          'will introduce unnecessary overheads which grow quadratically with '
-          'the max sequence length.'))
   flags.DEFINE_bool(
       name='enable_checkpointing',
       default=True,

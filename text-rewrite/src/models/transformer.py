@@ -48,14 +48,12 @@ def create_model(params, is_train=False):
 
       vocab_size = params["vocab_size"]
       label_smoothing = params["label_smoothing"]
-      if params["enable_metrics_in_training"]:
-        logits = metrics.MetricLayer(vocab_size)([logits, targets])
+
       logits = tf.keras.layers.Lambda(
           lambda x: x, name="logits", dtype=tf.float32)(
               logits)
       model = tf.keras.Model([inputs, segments, masks, targets], logits)
-      loss = metrics.transformer_loss(logits, targets, label_smoothing,
-                                      vocab_size)
+      loss = metrics.custom_transformer_loss(logits, targets, vocab_size)
       model.add_loss(loss)
       return model
 
@@ -139,17 +137,10 @@ class Transformer(tf.keras.Model):
     else:
       # Decoding path.
       inputs, segments, masks, targets = inputs[0], inputs[1], inputs[2], None
-      if self.params["padded_decode"]:
-        if not self.params["num_replicas"]:
-          raise NotImplementedError(
-              "Padded decoding on CPU/GPUs is not supported.")
-        decode_batch_size = int(self.params["decode_batch_size"] /
-                                self.params["num_replicas"])
-        inputs.set_shape([decode_batch_size, self.params["decode_max_length"]])
 
     # Variance scaling is used here because it seems to work in many problems.
     # Other reasonable initializers may also work just as well.
-    with tf.name_scope("transformer"):
+    with tf.name_scope("Transformer"):
       # Calculate attention bias for encoder self-attention and decoder
       # multi-headed attention layers.
       attention_bias, attention_bias_query, attention_bias_content = model_utils.get_padding_bias(
@@ -183,19 +174,21 @@ class Transformer(tf.keras.Model):
     with tf.name_scope("encode"):
       # Prepare inputs to the layer stack by adding positional encodings and
       # applying dropout.
-      embedded_inputs = self.embedding_softmax_layer(inputs)
-      embedded_inputs = tf.cast(embedded_inputs, self.params["dtype"])
+      encoder_inputs = self.embedding_softmax_layer(inputs)
+      encoder_inputs = tf.cast(encoder_inputs, self.params["dtype"])
       inputs_padding = model_utils.get_padding(inputs)
       attention_bias = tf.cast(attention_bias, self.params["dtype"])
 
       with tf.name_scope("add_segment_encoding"):
           segment_inputs = self.segment_embedding_layer(segments)
-          embedded_inputs += segment_inputs
+          encoder_inputs += segment_inputs
 
       with tf.name_scope("add_pos_encoding"):
-        pos_encoding = self.position_embedding_layer(inputs=embedded_inputs)
+        # pos_encoding = self.position_embedding_layer(inputs=encoder_inputs)
+        length = tf.shape(encoder_inputs)[1]
+        pos_encoding = model_utils.get_position_encoding(length, self.params["hidden_size"])
         pos_encoding = tf.cast(pos_encoding, self.params["dtype"])
-        encoder_inputs = embedded_inputs + pos_encoding
+        encoder_inputs += pos_encoding
 
       if training:
         encoder_inputs = tf.nn.dropout(
@@ -240,9 +233,11 @@ class Transformer(tf.keras.Model):
         # Shift targets to the right, and remove the last element
         decoder_inputs = tf.pad(decoder_inputs,
                                 [[0, 0], [1, 0], [0, 0]])[:, :-1, :]
+
+      length = tf.shape(decoder_inputs)[1]
       with tf.name_scope("add_pos_encoding"):
-        length = tf.shape(decoder_inputs)[1]
-        pos_encoding = self.position_embedding_layer(decoder_inputs)
+        # pos_encoding = self.position_embedding_layer(decoder_inputs)
+        pos_encoding = model_utils.get_position_encoding(length, self.params["hidden_size"])
         pos_encoding = tf.cast(pos_encoding, self.params["dtype"])
         decoder_inputs += pos_encoding
       if training:
@@ -270,8 +265,9 @@ class Transformer(tf.keras.Model):
 
   def _get_symbols_to_logits_fn(self, max_decode_length, training):
     """Returns a decoding function that calculates logits of the next tokens."""
-    timing_signal = self.position_embedding_layer(
-        inputs=None, length=max_decode_length + 1)
+    # timing_signal = self.position_embedding_layer(
+    #     inputs=None, length=max_decode_length + 1)
+    timing_signal = model_utils.get_position_encoding(max_decode_length + 1, self.params["hidden_size"])
     timing_signal = tf.cast(timing_signal, self.params["dtype"])
     decoder_self_attention_bias = model_utils.get_decoder_self_attention_bias(
         max_decode_length, dtype=self.params["dtype"])
@@ -296,14 +292,10 @@ class Transformer(tf.keras.Model):
 
       # Preprocess decoder input by getting embeddings and adding timing signal.
       decoder_input = self.embedding_softmax_layer(decoder_input)
-      decoder_input += timing_signal[i]
-      if self.params["padded_decode"]:
-        bias_shape = decoder_self_attention_bias.shape.as_list()
-        self_attention_bias = tf.slice(
-            decoder_self_attention_bias, [0, 0, i, 0],
-            [bias_shape[0], bias_shape[1], 1, bias_shape[3]])
-      else:
-        self_attention_bias = decoder_self_attention_bias[:, :, i:i + 1, :i + 1]
+      # decoder_input += timing_signal[i]
+      decoder_input + timing_signal[i:i + 1]
+
+      self_attention_bias = decoder_self_attention_bias[:, :, i:i + 1, :i + 1]
 
       # encdec_attention_bias = cache.get("encoder_decoder_attention_bias")
       encdec_attention_bias_query = cache.get("attention_bias_query")
@@ -319,8 +311,7 @@ class Transformer(tf.keras.Model):
                   encdec_attention_bias_query,
                   encdec_attention_bias_content,
                   training=training,
-                  cache=cache,
-                  decode_loop_step=i if self.params["padded_decode"] else None)
+                  cache=cache)
 
       # logits = self.embedding_softmax_layer(decoder_outputs, mode="linear")
       # logits = tf.squeeze(logits, axis=[1])
@@ -342,41 +333,33 @@ class Transformer(tf.keras.Model):
               training):
     """Return predicted sequence."""
     encoder_outputs = tf.cast(encoder_outputs, self.params["dtype"])
-    if self.params["padded_decode"]:
-      batch_size = encoder_outputs.shape.as_list()[0]
-      input_length = encoder_outputs.shape.as_list()[1]
-    else:
-      batch_size = tf.shape(encoder_outputs)[0]
-      input_length = tf.shape(encoder_outputs)[1]
+    batch_size = tf.shape(encoder_outputs)[0]
+    input_length = tf.shape(encoder_outputs)[1]
     max_decode_length = input_length + self.params["extra_decode_length"]
     # encoder_decoder_attention_bias = tf.cast(encoder_decoder_attention_bias,
     #                                          self.params["dtype"])
 
     symbols_to_logits_fn = self._get_symbols_to_logits_fn(
-        max_decode_length, training)
+                                max_decode_length, training)
 
     # Create initial set of IDs that will be passed into symbols_to_logits_fn.
     initial_ids = tf.zeros([batch_size], dtype=tf.int32)
 
     # Create cache storing decoder attention values for each layer.
-    # pylint: disable=g-complex-comprehension
-    init_decode_length = (
-        max_decode_length if self.params["padded_decode"] else 0)
     num_heads = self.params["num_heads"]
     dim_per_head = self.params["hidden_size"] // num_heads
     cache = {
         "layer_%d" % layer: {
             "k":
                 tf.zeros(
-                    [batch_size, init_decode_length, num_heads, dim_per_head],
+                    [batch_size, 0, num_heads, dim_per_head],
                     dtype=self.params["dtype"]),
             "v":
                 tf.zeros(
-                    [batch_size, init_decode_length, num_heads, dim_per_head],
+                    [batch_size, 0, num_heads, dim_per_head],
                     dtype=self.params["dtype"])
         } for layer in range(self.params["num_hidden_layers"])
     }
-    # pylint: enable=g-complex-comprehension
 
     # Add encoder output and attention bias to the cache.
     cache["encoder_outputs"] = encoder_outputs
@@ -395,7 +378,6 @@ class Transformer(tf.keras.Model):
         alpha=self.params["alpha"],
         max_decode_length=max_decode_length,
         eos_id=EOS_ID,
-        padded_decode=self.params["padded_decode"],
         dtype=self.params["dtype"])
 
     # Get the top sequence for each batch element
@@ -688,7 +670,7 @@ class DistributeLayer(tf.keras.layers.Layer):
     logits = tf.matmul(M, E, transpose_b=True)  # (bs, len_m, len_e)
     attention_bias = tf.expand_dims(attention_bias, axis=1)  # 维度扩充
     logits += attention_bias  # 对注意力矩阵进行掩码
-    att_weights = tf.nn.softmax(logits, name="attention_weights")
+    att_weights = tf.nn.softmax(logits, name="attention_weights")  # 就算target每个token与编码端输入的每个token的注意力权重
 
     return att_weights
 
@@ -721,11 +703,14 @@ class DistributeLayer(tf.keras.layers.Layer):
       updates = att_weight  # (bs*max_len_m, max_len_e)
 
       probs = tf.scatter_nd(indices, updates, shape)
+      # for value in probs[0]:
+      #     print(value)
 
       return probs
 
-    max_len_tgt = tf.shape(att_weights)[1]
+    max_len_tgt = att_weights_shape[1]  # tf.shape(att_weights)[1]
     encode_inputs = tf.expand_dims(encode_inputs, axis=1)
+    # 每个target token都配备一个encoder的输入序列
     encode_inputs = tf.tile(encode_inputs, [1, max_len_tgt, 1])  # 计算解码端每个token与编码端所以token attention
     encode_inputs = tf.reshape(encode_inputs, shape=[-1, attn_len])
     att_weights = tf.reshape(att_weights, shape=[-1, attn_len])
@@ -773,6 +758,7 @@ class DistributeLayer(tf.keras.layers.Layer):
       # shape = (bs, max_len_D, max_len_E)
       att_weights_query = self._self_attention(E, M, attention_bias_query)  # 计算出decoder端每个token与encoder端每个token的权重
       att_weights_content = self._self_attention(E, M, attention_bias_content)
+      # print(att_weights_content[0][0])
 
       # calc distribution
       probs_query = self._get_copy_distribution(att_weights_query, inputs)

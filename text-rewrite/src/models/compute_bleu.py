@@ -93,14 +93,16 @@ def bleu_wrapper(ref_filename, hyp_filename, case_sensitive=False):
 
 def bleu_on_list(ref_lines, hyp_lines, case_sensitive=False):
   """Compute BLEU for two list of strings (reference and hypothesis)."""
-  if len(ref_lines) != len(hyp_lines):
-    raise ValueError(
-        "Reference and translation files have different number of "
-        "lines (%d VS %d). If training only a few steps (100-200), the "
-        "translation may be empty." % (len(ref_lines), len(hyp_lines)))
+  if len(hyp_lines) == 0:
+      return 0.
+
+  len_diff = len(ref_lines) - len(hyp_lines)
+  for i in range(len_diff):
+      hyp_lines.append('#')
+
   if not case_sensitive:
-    ref_lines = [x.lower() for x in ref_lines]
-    hyp_lines = [x.lower() for x in hyp_lines]
+      ref_lines = [x.lower() for x in ref_lines]
+      hyp_lines = [x.lower() for x in hyp_lines]
   ref_tokens = [bleu_tokenize(x) for x in ref_lines]
   hyp_tokens = [bleu_tokenize(x) for x in hyp_lines]
   return metrics.compute_bleu(ref_tokens, hyp_tokens) * 100

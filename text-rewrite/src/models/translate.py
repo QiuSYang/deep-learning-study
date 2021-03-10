@@ -15,6 +15,7 @@
 """Translate text or files using trained transformer model."""
 
 # Import libraries
+from tqdm import tqdm
 from absl import logging
 import numpy as np
 import tensorflow as tf
@@ -36,21 +37,26 @@ def _get_sorted_inputs(filename):
     Sorted list of inputs, and dictionary mapping original index->sorted index
     of each element.
   """
-  with tf.io.gfile.GFile(filename) as f:
+  with tf.compat.v1.gfile.GFile(filename) as f:
     records = f.read().split("\n")
     inputs = [record.strip() for record in records]
     if not inputs[-1]:
       inputs.pop()
 
-  input_lens = [(i, len(line.split())) for i, line in enumerate(inputs)]
-  sorted_input_lens = sorted(input_lens, key=lambda x: x[1], reverse=True)
+  # input_lens = [(i, len(line.split())) for i, line in enumerate(inputs)]
+  # sorted_input_lens = sorted(input_lens, key=lambda x: x[1], reverse=True)
+  #
+  # sorted_inputs = [None] * len(sorted_input_lens)
+  # sorted_keys = [0] * len(sorted_input_lens)
+  # for i, (index, _) in enumerate(sorted_input_lens):
+  #   sorted_inputs[i] = inputs[index]
+  #   sorted_keys[index] = i
+  #
+  # return sorted_inputs, sorted_keys
 
-  sorted_inputs = [None] * len(sorted_input_lens)
-  sorted_keys = [0] * len(sorted_input_lens)
-  for i, (index, _) in enumerate(sorted_input_lens):
-    sorted_inputs[i] = inputs[index]
-    sorted_keys[index] = i
-  return sorted_inputs, sorted_keys
+  sorted_keys = list(range(len(inputs)))
+
+  return inputs, sorted_keys
 
 
 def _encode_and_add_eos(line, subtokenizer):
@@ -116,7 +122,7 @@ def translate_file(model,
     return ds
 
   translations = []
-  for i, inputs in enumerate(input_generator()):
+  for i, inputs in enumerate(tqdm(input_generator())):
     val_outputs, _ = model.predict(inputs)
 
     length = len(val_outputs)

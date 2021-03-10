@@ -40,6 +40,32 @@ def _pad_tensors_to_same_length(x, y):
     y = tf.pad(y, [[0, 0], [0, max_length - y_length]])
     return x, y
 
+def custom_padded_cross_entropy_loss(logits, labels, vocab_size):
+  """Calculate cross entropy loss while ignoring padding.
+
+  Args:
+    logits: Tensor of size [batch_size, length_logits, vocab_size]
+    labels: Tensor of size [batch_size, length_labels]
+    smoothing: Label smoothing constant, used to determine the on and off values
+    vocab_size: int size of the vocabulary
+
+  Returns:
+    Returns the cross entropy loss and weight tensors: float32 tensors with
+      shape [batch_size, max(length_logits, length_labels)]
+  """
+  with tf.name_scope("loss"):
+    logits, labels = _pad_tensors_to_same_length(logits, labels)
+    # Calculate smoothing cross entropy
+    with tf.compat.v1.name_scope("cross_entropy"):
+      soft_targets = tf.one_hot(tf.cast(labels, tf.int32), depth=vocab_size)
+      logits = tf.minimum(1., logits + 1e-6)
+      log_probs = tf.math.log(logits)
+      xentropy = -tf.reduce_sum(soft_targets * log_probs, axis=-1)
+
+    weights = tf.cast(tf.not_equal(labels, 0), dtype="float32")
+
+    return xentropy * weights, weights
+
 
 def padded_cross_entropy_loss(logits, labels, smoothing, vocab_size):
   """Calculate cross entropy loss while ignoring padding.
@@ -161,6 +187,24 @@ class MetricLayer(tf.keras.layers.Layer):
       m = mean(*fn(logits, targets))
       self.add_metric(m)
     return logits
+
+
+def custom_transformer_loss(logits, labels, vocab_size):
+  """Calculates total loss containing cross entropy with padding ignored.
+
+  Args:
+    logits: Tensor of size [batch_size, length_logits, vocab_size]
+    labels: Tensor of size [batch_size, length_labels]
+    vocab_size: int size of the vocabulary
+
+  Returns:
+    A scalar float tensor for loss.
+  """
+  xentropy, weights = custom_padded_cross_entropy_loss(
+                        logits, labels, vocab_size)
+  loss = tf.reduce_sum(xentropy) / tf.reduce_sum(weights)
+
+  return loss
 
 
 def transformer_loss(logits, labels, smoothing, vocab_size):

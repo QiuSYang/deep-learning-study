@@ -19,6 +19,7 @@ BLEU score.
 """
 
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import tempfile
 
 # Import libraries
@@ -78,7 +79,7 @@ def translate_and_compute_bleu(model,
       bleu_source,
       output_file=tmp_filename,
       vocab_file=params["vocab_file"],
-      print_all_translations=False)
+      print_all_translations=True)
 
   # Compute uncased and cased bleu scores.
   uncased_score = compute_bleu.bleu_wrapper(bleu_ref, tmp_filename, False)
@@ -148,7 +149,7 @@ class TextRewriteTask(object):
     # params["max_length"] = flags_obj.max_length
     params["decode_batch_size"] = flags_obj.decode_batch_size
     # params["decode_max_length"] = flags_obj.decode_max_length
-    params["padded_decode"] = flags_obj.padded_decode
+    # params["padded_decode"] = flags_obj.padded_decode
     params["max_io_parallelism"] = (
         flags_obj.num_parallel_calls or tf.data.experimental.AUTOTUNE)
 
@@ -157,7 +158,7 @@ class TextRewriteTask(object):
     params["repeat_dataset"] = None
     params["dtype"] = flags_core.get_tf_dtype(flags_obj)
     params["enable_tensorboard"] = flags_obj.enable_tensorboard
-    params["enable_metrics_in_training"] = flags_obj.enable_metrics_in_training
+
     params["steps_between_evals"] = flags_obj.steps_between_evals
     params["enable_checkpointing"] = flags_obj.enable_checkpointing
     params["save_weights_only"] = flags_obj.save_weights_only
@@ -216,8 +217,6 @@ class TextRewriteTask(object):
         else:
           summary_writer = tf.summary.create_noop_writer()
         train_metrics = [train_loss_metric]
-        if params["enable_metrics_in_training"]:
-          train_metrics = train_metrics + model.metrics
       else:
         model.compile(opt)
 
@@ -260,9 +259,9 @@ class TextRewriteTask(object):
 
       def _step_fn(inputs):
         """Per-replica step function."""
-        inputs, targets = inputs
+        inputs, segments, masks, targets = inputs[0]
         with tf.GradientTape() as tape:
-          logits = model([inputs, targets], training=True)
+          logits = model([inputs, segments, masks, targets], training=True)
           loss = metrics.transformer_loss(logits, targets,
                                           params["label_smoothing"],
                                           params["vocab_size"])

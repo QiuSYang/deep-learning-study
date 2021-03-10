@@ -183,9 +183,12 @@ class SegmentEmbedding(tf.keras.layers.Layer):
   def call(self, inputs, mode="embedding"):
     """calculates segment embeddings"""
     with tf.name_scope("embedding"):
+      # segment padding = 0
       mask = tf.cast(tf.not_equal(inputs, 0), dtype=tf.float32)
 
       embeddings = tf.gather(self.shared_weights, inputs)
+      # mask = tf.expand_dims(mask, axis=-1)
+      # embeddings *= mask
       embeddings *= tf.expand_dims(mask, axis=-1)
 
       # Scale embedding by the sqrt of the hidden size
