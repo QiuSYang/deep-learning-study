@@ -355,7 +355,7 @@ def init_dataset_from_text_file(
 
 def _read_and_batch_from_files(
     file_pattern, batch_size, max_length_source, max_length_target,
-      num_parallel_calls, shuffle, repeat, vocab_file, static_batch=False, ctx=None):
+    num_parallel_calls, shuffle, vocab_file, ctx=None):
   """Create dataset where each item is a dict of "inputs" and "targets".
 
   Args:
@@ -395,8 +395,8 @@ def _read_and_batch_from_files(
     dataset = dataset.shuffle(1024, seed=seed, reshuffle_each_iteration=True)
 
   dataset = dataset.batch(batch_size)
-  dataset = dataset.repeat(repeat)
-  dataset = dataset.prefetch(buffer_size=None)
+  # dataset = dataset.repeat(repeat)
+  # dataset = dataset.prefetch(buffer_size=None)
 
   return dataset
 
@@ -423,9 +423,7 @@ def train_input_fn(params, cxt=None):
   max_length_target = params["max_length_target"]
   return _read_and_batch_from_files(
       file_pattern, params["batch_size"], max_length_source, max_length_target,
-      params["num_parallel_calls"], shuffle=True,
-      repeat=params["repeat_dataset"], vocab_file=params["vocab_file"],
-      static_batch=params["static_batch"])
+      params["num_parallel_calls"], shuffle=True, vocab_file=params["vocab_file"])
 
 
 def eval_input_fn(params):
@@ -437,11 +435,12 @@ def eval_input_fn(params):
   max_length_target = params["max_length_target"]
   return _read_and_batch_from_files(
       file_pattern, params["batch_size"], max_length_source, max_length_target,
-      params["num_parallel_calls"], shuffle=False, repeat=1,
-      vocab_file=params["vocab_file"], static_batch=params["static_batch"])
+      params["num_parallel_calls"], shuffle=False, vocab_file=params["vocab_file"])
+
 
 def map_data_for_transformer_fn(x, y):
   """Maps data for training, and handles weried behaviors for different vers."""
   # Will transform input x and targets y into tuple(x, y) as new model inputs.
   # For TF v2, the 2nd parameter is omitted to make Keras training work.
+
   return ((x, y),)

@@ -21,13 +21,15 @@ Transformer model code source: https://github.com/tensorflow/tensor2tensor
 import tensorflow as tf
 from official.nlp.modeling.layers import position_embedding
 
-from src.models import beam_search
-from src.utils.tokenizer import EOS_ID
+# from src.models import beam_search
+from src.models import beam_search_custom as beam_search
 from src.models import model_utils
-from src.models import attention_layer
+# from src.models import attention_layer
+from src.models import attention_layer_custom as attention_layer
 from src.models import embedding_layer
 from src.models import ffn_layer
 from src.models import metrics
+from src.utils.tokenizer import EOS_ID
 
 # Disable the not-callable lint error, since it claims many objects are not
 # callable when they actually are.
@@ -95,8 +97,8 @@ class Transformer(tf.keras.Model):
         16, hidden_size=params["hidden_size"])
     # self.position_embedding_layer = embedding_layer.PositionEmbedding(
     #     512, hidden_size=params["hidden_size"])
-    self.position_embedding_layer = position_embedding.RelativePositionEmbedding(
-        hidden_size=self.params["hidden_size"])
+    # self.position_embedding_layer = position_embedding.RelativePositionEmbedding(
+    #     hidden_size=self.params["hidden_size"])
     self.encoder_stack = EncoderStack(params)
     self.decoder_stack = DecoderStack(params)
     self.distribute_layer = DistributeLayer(params)
@@ -346,20 +348,27 @@ class Transformer(tf.keras.Model):
     initial_ids = tf.zeros([batch_size], dtype=tf.int32)
 
     # Create cache storing decoder attention values for each layer.
-    num_heads = self.params["num_heads"]
-    dim_per_head = self.params["hidden_size"] // num_heads
+    # num_heads = self.params["num_heads"]
+    # dim_per_head = self.params["hidden_size"] // num_heads
+    # cache = {
+    #     "layer_%d" % layer: {
+    #         "k":
+    #             tf.zeros(
+    #                 [batch_size, 0, num_heads, dim_per_head],
+    #                 dtype=self.params["dtype"]),
+    #         "v":
+    #             tf.zeros(
+    #                 [batch_size, 0, num_heads, dim_per_head],
+    #                 dtype=self.params["dtype"])
+    #     } for layer in range(self.params["num_hidden_layers"])
+    # }
+
+    # custom attention layer
     cache = {
         "layer_%d" % layer: {
-            "k":
-                tf.zeros(
-                    [batch_size, 0, num_heads, dim_per_head],
-                    dtype=self.params["dtype"]),
-            "v":
-                tf.zeros(
-                    [batch_size, 0, num_heads, dim_per_head],
-                    dtype=self.params["dtype"])
-        } for layer in range(self.params["num_hidden_layers"])
-    }
+            "k": tf.zeros([batch_size, 0, self.params["hidden_size"]]),
+            "v": tf.zeros([batch_size, 0, self.params["hidden_size"]]),
+        } for layer in range(self.params["num_hidden_layers"])}
 
     # Add encoder output and attention bias to the cache.
     cache["encoder_outputs"] = encoder_outputs
@@ -378,7 +387,7 @@ class Transformer(tf.keras.Model):
         alpha=self.params["alpha"],
         max_decode_length=max_decode_length,
         eos_id=EOS_ID,
-        dtype=self.params["dtype"])
+        )
 
     # Get the top sequence for each batch element
     top_decoded_ids = decoded_ids[:, 0, 1:]
@@ -446,8 +455,7 @@ class EncoderStack(tf.keras.layers.Layer):
     for _ in range(params["num_hidden_layers"]):
       # Create sublayers for each layer.
       self_attention_layer = attention_layer.SelfAttention(
-          params["hidden_size"], params["num_heads"],
-          params["attention_dropout"])
+          params["hidden_size"], params["num_heads"], params["attention_dropout"])
       feed_forward_network = ffn_layer.FeedForwardNetwork(
           params["hidden_size"], params["filter_size"], params["relu_dropout"])
 
@@ -519,11 +527,9 @@ class DecoderStack(tf.keras.layers.Layer):
     params = self.params
     for _ in range(params["num_hidden_layers"]):
       self_attention_layer = attention_layer.SelfAttention(
-          params["hidden_size"], params["num_heads"],
-          params["attention_dropout"])
+          params["hidden_size"], params["num_heads"], params["attention_dropout"])
       enc_dec_attention_layer = attention_layer.Attention(
-          params["hidden_size"], params["num_heads"],
-          params["attention_dropout"])
+          params["hidden_size"], params["num_heads"], params["attention_dropout"])  # cross attention layer
       feed_forward_network = ffn_layer.FeedForwardNetwork(
           params["hidden_size"], params["filter_size"], params["relu_dropout"])
 
@@ -551,8 +557,8 @@ class DecoderStack(tf.keras.layers.Layer):
            attention_bias_query,
            attention_bias_content,
            training,
-           cache=None,
-           decode_loop_step=None):
+           cache=None
+           ):
     """Return the output of the decoder layer stacks.
 
     Args:
@@ -574,8 +580,6 @@ class DecoderStack(tf.keras.layers.Layer):
           {layer_n: {"k": A tensor with shape [batch_size, i, key_channels],
                      "v": A tensor with shape [batch_size, i, value_channels]},
                        ...}
-      decode_loop_step: An integer, the step number of the decoding loop. Used
-        only for autoregressive inference on TPU.
 
     Returns:
       Output of decoder layer stack.
@@ -595,8 +599,7 @@ class DecoderStack(tf.keras.layers.Layer):
                       decoder_inputs,
                       decoder_self_attention_bias,
                       training=training,
-                      cache=layer_cache,
-                      decode_loop_step=decode_loop_step)
+                      cache=layer_cache)
         with tf.name_scope("encdec_attention"):
           decoder_inputs_query = enc_dec_attention_layer(
                       decoder_inputs_M,
