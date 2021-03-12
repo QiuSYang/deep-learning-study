@@ -21,8 +21,8 @@ Transformer model code source: https://github.com/tensorflow/tensor2tensor
 import tensorflow as tf
 from official.nlp.modeling.layers import position_embedding
 
-# from src.models import beam_search
-from src.models import beam_search_custom as beam_search
+from src.models import beam_search
+# from src.models import beam_search_custom as beam_search
 from src.models import model_utils
 # from src.models import attention_layer
 from src.models import attention_layer_custom as attention_layer
@@ -154,6 +154,7 @@ class Transformer(tf.keras.Model):
       # Generate output sequence if targets is None, or return logits if target
       # sequence is known.
       if targets is None:
+        # return {"outputs": tf.zeros((2, 2)), "scores": tf.zeros(2, 2)}
         return self.predict(inputs, encoder_outputs,
                             attention_bias_query, attention_bias_content, training)
       else:
@@ -227,14 +228,19 @@ class Transformer(tf.keras.Model):
     with tf.name_scope("decode"):
       # Prepare inputs to decoder layers by shifting targets, adding positional
       # encoding and applying dropout.
+      with tf.name_scope("shift_targets"):
+        # Shift targets to the right, and remove the last element
+        targets = tf.pad(targets,
+                         [[0, 0], [1, 0]])[:, :-1]  # 先对target头部补0, 再进行embedding encode
+
       decoder_inputs = self.embedding_softmax_layer(targets)
       decoder_inputs = tf.cast(decoder_inputs, self.params["dtype"])
       # attention_bias = tf.cast(attention_bias, self.params["dtype"])
 
-      with tf.name_scope("shift_targets"):
-        # Shift targets to the right, and remove the last element
-        decoder_inputs = tf.pad(decoder_inputs,
-                                [[0, 0], [1, 0], [0, 0]])[:, :-1, :]
+      # with tf.name_scope("shift_targets"):
+      #   # Shift targets to the right, and remove the last element
+      #   decoder_inputs = tf.pad(decoder_inputs,
+      #                           [[0, 0], [1, 0], [0, 0]])[:, :-1, :]
 
       length = tf.shape(decoder_inputs)[1]
       with tf.name_scope("add_pos_encoding"):
@@ -337,7 +343,8 @@ class Transformer(tf.keras.Model):
     encoder_outputs = tf.cast(encoder_outputs, self.params["dtype"])
     batch_size = tf.shape(encoder_outputs)[0]
     input_length = tf.shape(encoder_outputs)[1]
-    max_decode_length = input_length + self.params["extra_decode_length"]
+    # max_decode_length = input_length + self.params["extra_decode_length"]
+    max_decode_length = self.params["max_length_target"]
     # encoder_decoder_attention_bias = tf.cast(encoder_decoder_attention_bias,
     #                                          self.params["dtype"])
 
@@ -386,8 +393,7 @@ class Transformer(tf.keras.Model):
         beam_size=self.params["beam_size"],
         alpha=self.params["alpha"],
         max_decode_length=max_decode_length,
-        eos_id=EOS_ID,
-        )
+        eos_id=EOS_ID)
 
     # Get the top sequence for each batch element
     top_decoded_ids = decoded_ids[:, 0, 1:]

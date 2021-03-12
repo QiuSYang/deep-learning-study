@@ -101,7 +101,7 @@ def translate_file(model,
         length = len(val_outputs)
         for j in range(length):
             if j + id * batch_size < total_samples:
-                translation = _trim_and_decode(val_outputs[j], subtokenizer)
+                translation = _trim_and_decode(val_outputs[j].numpy(), subtokenizer)
                 translations.append(translation)
             if print_all_translations:
                 logging.info("Translating:\n\tInput: %s\n\tOutput: %s",

@@ -1,0 +1,2 @@
+nvidia-pyindex
+tritonclient[all]  # 用于python客户端调用服务

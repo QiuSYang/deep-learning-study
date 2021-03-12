@@ -17,3 +17,4 @@
 ./knowledge_point_extraction/.idea/
 ./knowledge_point_extraction/data/
 ./text-rewrite/.idea/
+./model-server/.idea/
