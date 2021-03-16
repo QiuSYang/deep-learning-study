@@ -4,6 +4,7 @@
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import tempfile
+import numpy as np
 
 # Import libraries
 from tqdm import tqdm
@@ -29,6 +30,15 @@ INF = int(1e9)
 BLEU_DIR = "bleu"
 _SINGLE_SAMPLE = 1
 work_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _trim_and_decode(ids, subtokenizer):
+    """Trim EOS and PAD tokens from ids, and decode to return a string."""
+    try:
+        index = list(ids).index(tokenizer.EOS_ID)
+        return subtokenizer.decode(ids[:index])
+    except ValueError:  # No EOS found in sequence
+        return subtokenizer.decode(ids)
 
 
 def _get_sorted_inputs(filename):
@@ -94,9 +104,10 @@ def translate_file(model,
     translations = []
     for id, inputs in enumerate(tqdm(input_generator())):
         inputs, segments, masks, targets = inputs[0]
-        # results = model([inputs, segments, masks], training=False)
-        # val_outputs = results["outputs"]
-        val_outputs, _ = model([inputs, segments, masks], training=False)
+        if params["is_beam_search"]:
+            val_outputs, _ = model([inputs, segments, masks], training=False)
+        else:
+            val_outputs = model([inputs, segments, masks], training=False)
 
         length = len(val_outputs)
         for j in range(length):
@@ -116,15 +127,6 @@ def translate_file(model,
         with tf.io.gfile.GFile(output_file, "w") as f:
             for i in sorted_keys:
                 f.write("%s\n" % translations[i])
-
-
-def _trim_and_decode(ids, subtokenizer):
-    """Trim EOS and PAD tokens from ids, and decode to return a string."""
-    try:
-        index = list(ids).index(tokenizer.EOS_ID)
-        return subtokenizer.decode(ids[:index])
-    except ValueError:  # No EOS found in sequence
-        return subtokenizer.decode(ids)
 
 
 def translate_and_compute_bleu(model,
@@ -147,8 +149,9 @@ def translate_and_compute_bleu(model,
     cased_score: A float, the case sensitive BLEU score.
     """
     # Create temporary file to store translation.
-    tmp = tempfile.NamedTemporaryFile(delete=False)
-    tmp_filename = tmp.name
+    # tmp = tempfile.NamedTemporaryFile(delete=False)
+    # tmp_filename = tmp.name
+    tmp_filename = os.path.join(work_path, "data/generate_results_2.txt")
 
     translate_file(
         model,
@@ -162,7 +165,7 @@ def translate_and_compute_bleu(model,
     # Compute uncased and cased bleu scores.
     uncased_score = compute_bleu.bleu_wrapper(bleu_ref, tmp_filename, False)
     cased_score = compute_bleu.bleu_wrapper(bleu_ref, tmp_filename, True)
-    os.remove(tmp_filename)
+    # os.remove(tmp_filename)
     return uncased_score, cased_score
 
 
@@ -250,9 +253,9 @@ class TextRewriteTask(object):
                 internal_model = transformer.Transformer(params, name="transformer_v2")
                 logits = internal_model([inputs, segments, masks, targets], training=is_train)
 
-                logits = tf.keras.layers.Lambda(
-                    lambda x: x, name="logits", dtype=tf.float32)(
-                    logits)
+                # logits = tf.keras.layers.Lambda(
+                #     lambda x: x, name="logits", dtype=tf.float32)(
+                #     logits)
                 model = tf.keras.Model([inputs, segments, masks, targets], logits)
 
                 return model
@@ -263,10 +266,13 @@ class TextRewriteTask(object):
                 masks = tf.keras.layers.Input((None,), dtype="int32", name="masks")
 
                 internal_model = transformer.Transformer(params, name="transformer_v2")
-                ret = internal_model([inputs, segments, masks], training=is_train)
+                results = internal_model([inputs, segments, masks], training=is_train)
 
-                outputs, scores = ret["outputs"], ret["scores"]
-                model = tf.keras.Model([inputs, segments, masks], [outputs, scores])
+                if params["is_beam_search"]:
+                    outputs, scores = results["outputs"], results["scores"]
+                    model = tf.keras.Model([inputs, segments, masks], [outputs, scores])
+                else:
+                    model = tf.keras.Model([inputs, segments, masks], results)
 
                 return model
 
@@ -302,6 +308,7 @@ class TextRewriteTask(object):
             self.model.load_weights(latest_checkpoint)
 
         train_ds = dataset.train_input_fn(params)
+        eval_ds = dataset.eval_input_fn(params)
         # logging.info("data size: {}".format(len(train_ds)))
 
         train_loss_metric = tf.keras.metrics.Mean("training_loss", dtype=tf.float32)
@@ -329,6 +336,15 @@ class TextRewriteTask(object):
                 # checkpoint.save(file_prefix=os.path.join(params["model_dir"], "{}.ckpt".format(epoch)))
                 self.model.save_weights(filepath=os.path.join(params["model_dir"], "{}.ckpt".format(epoch)))
 
+                # uncased_score, cased_score = self.evaluate(params)
+                # logging.info("the {} epoch bleu: {} --- {}".format(epoch, uncased_score, cased_score))
+                # tf.summary.scalar("evaluate-bleu", uncased_score, epoch
+                # summary_writer.flush()
+                eval_loss = self.evaluate_loss(eval_ds, params)
+                logging.info("the {} epoch eval loss: {}".format(epoch, eval_loss))
+                tf.summary.scalar("evaluate-loss", eval_loss, epoch.numpy())
+                summary_writer.flush()
+
         summary_writer.close()
 
     def train_step(self, inputs, params):
@@ -346,6 +362,19 @@ class TextRewriteTask(object):
 
         return loss
 
+    def evaluate_loss(self, data_iter, params):
+        """通过计算loss方式训练过程评价模型"""
+        sum_loss = []
+        for batch_id, inputs in enumerate(tqdm(data_iter)):
+            inputs, segments, masks, targets = inputs[0]
+            logits = self.model([inputs, segments, masks, targets], training=False)
+            xentropy, weights = metrics.custom_padded_cross_entropy_loss(
+                logits, targets, params["vocab_size"])
+            loss = tf.reduce_sum(xentropy) / tf.reduce_sum(weights)
+            sum_loss.append(loss.numpy())
+
+        return np.array(sum_loss).mean()
+
     def evaluate(self, params, is_restore=False):
         """模型评估"""
         if is_restore:
@@ -354,13 +383,16 @@ class TextRewriteTask(object):
             self.model = self._create_model(params, is_train=False)
             self.model.summary()
 
+            # self.model = transformer.Transformer(params, name="transformer_v2")
             # inputs, segments, masks = tf.zeros((1, 10), dtype=tf.int32), \
             #                           tf.zeros((1, 10), dtype=tf.int32), \
             #                           tf.zeros((1, 10), dtype=tf.int32)
             # _ = self.model([inputs, segments, masks], training=False)
+            # self.model.summary()
 
             # checkpoint = tf.train.Checkpoint(model=self.model)
             latest_checkpoint = tf.train.latest_checkpoint(params["model_dir"])
+            # latest_checkpoint = os.path.join(params["model_dir"], "7.ckpt")
             if latest_checkpoint:
                 # checkpoint.restore(latest_checkpoint)
                 self.model.load_weights(latest_checkpoint)

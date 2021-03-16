@@ -30,6 +30,7 @@ from src.models import embedding_layer
 from src.models import ffn_layer
 from src.models import metrics
 from src.utils.tokenizer import EOS_ID
+from src.utils.inference_utils import tf_top_k_top_p_filtering
 
 # Disable the not-callable lint error, since it claims many objects are not
 # callable when they actually are.
@@ -47,16 +48,15 @@ def create_model(params, is_train=False):
 
       internal_model = Transformer(params, name="transformer_v2")
       logits = internal_model([inputs, segments, masks, targets], training=is_train)
+      logits = tf.keras.layers.Lambda(
+            lambda x: x, name="logits", dtype=tf.float32)(logits)
+
+      model = tf.keras.Model([inputs, segments, masks, targets], logits)
 
       vocab_size = params["vocab_size"]
-      label_smoothing = params["label_smoothing"]
-
-      logits = tf.keras.layers.Lambda(
-          lambda x: x, name="logits", dtype=tf.float32)(
-              logits)
-      model = tf.keras.Model([inputs, segments, masks, targets], logits)
       loss = metrics.custom_transformer_loss(logits, targets, vocab_size)
       model.add_loss(loss)
+
       return model
 
     else:
@@ -65,10 +65,13 @@ def create_model(params, is_train=False):
       masks = tf.keras.layers.Input((None,), dtype="int32", name="masks")
 
       internal_model = Transformer(params, name="transformer_v2")
-      ret = internal_model([inputs, segments, masks], training=is_train)
+      results = internal_model([inputs, segments, masks], training=is_train)
 
-      outputs, scores = ret["outputs"], ret["scores"]
-      return tf.keras.Model([inputs, segments, masks], [outputs, scores])
+      if params["is_beam_search"]:
+        outputs, scores = results["outputs"], results["scores"]
+        return tf.keras.Model([inputs, segments, masks], [outputs, scores])
+
+      return tf.keras.Model([inputs, segments, masks], results)
 
 
 class Transformer(tf.keras.Model):
@@ -274,7 +277,7 @@ class Transformer(tf.keras.Model):
   def _get_symbols_to_logits_fn(self, max_decode_length, training):
     """Returns a decoding function that calculates logits of the next tokens."""
     # timing_signal = self.position_embedding_layer(
-    #     inputs=None, length=max_decode_length + 1)
+    #                   inputs=None, length=max_decode_length + 1)
     timing_signal = model_utils.get_position_encoding(max_decode_length + 1, self.params["hidden_size"])
     timing_signal = tf.cast(timing_signal, self.params["dtype"])
     decoder_self_attention_bias = model_utils.get_decoder_self_attention_bias(
@@ -340,66 +343,120 @@ class Transformer(tf.keras.Model):
               attention_bias_content,
               training):
     """Return predicted sequence."""
-    encoder_outputs = tf.cast(encoder_outputs, self.params["dtype"])
-    batch_size = tf.shape(encoder_outputs)[0]
-    input_length = tf.shape(encoder_outputs)[1]
-    # max_decode_length = input_length + self.params["extra_decode_length"]
-    max_decode_length = self.params["max_length_target"]
-    # encoder_decoder_attention_bias = tf.cast(encoder_decoder_attention_bias,
-    #                                          self.params["dtype"])
+    if self.params["is_beam_search"]:
+      # 使用beam search 方法进行推理
+      encoder_outputs = tf.cast(encoder_outputs, self.params["dtype"])
+      batch_size = tf.shape(encoder_outputs)[0]
+      input_length = tf.shape(encoder_outputs)[1]
+      # max_decode_length = input_length + self.params["extra_decode_length"]
+      max_decode_length = self.params["max_length_target"]
+      # encoder_decoder_attention_bias = tf.cast(encoder_decoder_attention_bias,
+      #                                          self.params["dtype"])
 
-    symbols_to_logits_fn = self._get_symbols_to_logits_fn(
-                                max_decode_length, training)
+      symbols_to_logits_fn = self._get_symbols_to_logits_fn(
+                                  max_decode_length, training)
 
-    # Create initial set of IDs that will be passed into symbols_to_logits_fn.
-    initial_ids = tf.zeros([batch_size], dtype=tf.int32)
+      # Create initial set of IDs that will be passed into symbols_to_logits_fn.
+      initial_ids = tf.zeros([batch_size], dtype=tf.int32)
 
-    # Create cache storing decoder attention values for each layer.
-    # num_heads = self.params["num_heads"]
-    # dim_per_head = self.params["hidden_size"] // num_heads
-    # cache = {
-    #     "layer_%d" % layer: {
-    #         "k":
-    #             tf.zeros(
-    #                 [batch_size, 0, num_heads, dim_per_head],
-    #                 dtype=self.params["dtype"]),
-    #         "v":
-    #             tf.zeros(
-    #                 [batch_size, 0, num_heads, dim_per_head],
-    #                 dtype=self.params["dtype"])
-    #     } for layer in range(self.params["num_hidden_layers"])
-    # }
+      # Create cache storing decoder attention values for each layer.
+      # num_heads = self.params["num_heads"]
+      # dim_per_head = self.params["hidden_size"] // num_heads
+      # cache = {
+      #     "layer_%d" % layer: {
+      #         "k":
+      #             tf.zeros(
+      #                 [batch_size, 0, num_heads, dim_per_head],
+      #                 dtype=self.params["dtype"]),
+      #         "v":
+      #             tf.zeros(
+      #                 [batch_size, 0, num_heads, dim_per_head],
+      #                 dtype=self.params["dtype"])
+      #     } for layer in range(self.params["num_hidden_layers"])
+      # }
 
-    # custom attention layer
-    cache = {
-        "layer_%d" % layer: {
-            "k": tf.zeros([batch_size, 0, self.params["hidden_size"]]),
-            "v": tf.zeros([batch_size, 0, self.params["hidden_size"]]),
-        } for layer in range(self.params["num_hidden_layers"])}
+      # custom attention layer
+      cache = {
+          "layer_%d" % layer: {
+              "k": tf.zeros([batch_size, 0, self.params["hidden_size"]]),
+              "v": tf.zeros([batch_size, 0, self.params["hidden_size"]]),
+          } for layer in range(self.params["num_hidden_layers"])}
 
-    # Add encoder output and attention bias to the cache.
-    cache["encoder_outputs"] = encoder_outputs
-    # cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
-    cache["attention_bias_query"] = attention_bias_query
-    cache["attention_bias_content"] = attention_bias_content
-    cache["inputs"] = inputs
+      # Add encoder output and attention bias to the cache.
+      cache["encoder_outputs"] = encoder_outputs
+      # cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
+      cache["attention_bias_query"] = attention_bias_query
+      cache["attention_bias_content"] = attention_bias_content
+      cache["inputs"] = inputs
 
-    # Use beam search to find the top beam_size sequences and scores.
-    decoded_ids, scores = beam_search.sequence_beam_search(
-        symbols_to_logits_fn=symbols_to_logits_fn,
-        initial_ids=initial_ids,
-        initial_cache=cache,
-        vocab_size=self.params["vocab_size"],
-        beam_size=self.params["beam_size"],
-        alpha=self.params["alpha"],
-        max_decode_length=max_decode_length,
-        eos_id=EOS_ID)
+      # Use beam search to find the top beam_size sequences and scores.
+      decoded_ids, scores = beam_search.sequence_beam_search(
+          symbols_to_logits_fn=symbols_to_logits_fn,
+          initial_ids=initial_ids,
+          initial_cache=cache,
+          vocab_size=self.params["vocab_size"],
+          beam_size=self.params["beam_size"],
+          alpha=self.params["alpha"],
+          max_decode_length=max_decode_length,
+          eos_id=EOS_ID)
 
-    # Get the top sequence for each batch element
-    top_decoded_ids = decoded_ids[:, 0, 1:]
-    top_scores = scores[:, 0]
+      # Get the top sequence for each batch element
+      top_decoded_ids = decoded_ids[:, 0, 1:]
+      top_scores = scores[:, 0]
 
-    return {"outputs": top_decoded_ids, "scores": top_scores}
+      return {"outputs": top_decoded_ids, "scores": top_scores}
+    else:
+      # 使用贪婪方法进行推理
+      encoder_outputs = tf.cast(encoder_outputs, self.params["dtype"])
+      batch_size = tf.shape(encoder_outputs)[0]
+      decoder_ids = tf.zeros([batch_size, 1], dtype=tf.int32)  # 初始化start id
+
+      max_decode_length = self.params["max_length_target"]
+      for i in range(max_decode_length):
+        # 依次生成单个token
+        decoder_inputs = self.embedding_softmax_layer(decoder_ids)
+        decoder_inputs = tf.cast(decoder_inputs, self.params["dtype"])
+
+        length = tf.shape(decoder_inputs)[1]  # 获取当前序列长度
+        with tf.name_scope("add_pos_encoding"):
+          pos_encoding = model_utils.get_position_encoding(length, self.params["hidden_size"])
+          pos_encoding = tf.cast(pos_encoding, self.params["dtype"])
+          decoder_inputs += pos_encoding
+        if training:
+          decoder_inputs = tf.nn.dropout(decoder_inputs, rate=self.params["layer_postprocess_dropout"])
+
+        decoder_self_attention_bias = model_utils.get_decoder_self_attention_bias(
+            length, dtype=self.params["dtype"])
+        D, C_query, C_content, M = self.decoder_stack(
+            decoder_inputs,
+            encoder_outputs,
+            decoder_self_attention_bias,
+            # attention_bias,
+            attention_bias_query,
+            attention_bias_content,
+            training=training)
+
+        logits = self.distribute_layer(inputs, D, C_query, C_content, M, encoder_outputs,
+                                       attention_bias_query, attention_bias_content)
+
+        next_token_logits = logits[:, -1, :]
+        if self.params["do_sample"]:
+          temperature = self.params["temperature"]
+          if temperature != 1.0:
+            next_token_logits = next_token_logits / temperature
+          next_token_logits = tf_top_k_top_p_filtering(next_token_logits,
+                                                       top_k=self.params["top_k"],
+                                                       top_p=self.params["top_p"])
+          # current_id = tf.random.categorical(next_token_logits, dtype=tf.int32, num_samples=1)
+          # current_id = tf.squeeze(current_id, axis=-1)
+          current_id = tf.argmax(tf.nn.softmax(next_token_logits, axis=-1), axis=-1)
+        else:
+          current_id = tf.argmax(tf.nn.softmax(next_token_logits, axis=-1), axis=-1)
+
+        current_id = tf.cast(current_id, dtype=tf.int32)
+        decoder_ids = tf.concat([decoder_ids, tf.expand_dims(current_id, axis=-1)], axis=-1)
+
+      return decoder_ids[:, 1:]  # 删除起始符
 
 
 class PrePostProcessingWrapper(tf.keras.layers.Layer):
