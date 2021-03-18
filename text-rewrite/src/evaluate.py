@@ -22,8 +22,7 @@ def parse_opts():
     '-g', '--gold', dest='gold', type='str', help='path of gold')
   op.add_option(
     '-t', '--test', dest='test', type='str', help='path of predict')
-  argv = [] if not hasattr(sys.modules['__main__'], '__file__') else sys.argv[
-                                                                     1:]
+  argv = [] if not hasattr(sys.modules['__main__'], '__file__') else sys.argv[1:]
   (opts, args) = op.parse_args(argv)
   if not opts.gold or not opts.test:
     op.print_help()
@@ -132,6 +131,7 @@ class Metrics(object):
 
 
 if __name__ == '__main__':
+  """python3 evaluate.py -g [生成的预测数据] -t [目标数据]"""
   opts = parse_opts()
   candidates = readlines(opts.gold)
   references = readlines(opts.test)

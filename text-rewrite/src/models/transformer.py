@@ -30,7 +30,7 @@ from src.models import embedding_layer
 from src.models import ffn_layer
 from src.models import metrics
 from src.utils.tokenizer import EOS_ID
-from src.utils.inference_utils import tf_top_k_top_p_filtering
+from src.utils.inference_utils import tf_top_k_top_p_filtering, BeamHypotheses
 
 # Disable the not-callable lint error, since it claims many objects are not
 # callable when they actually are.
@@ -405,6 +405,65 @@ class Transformer(tf.keras.Model):
       top_scores = scores[:, 0]
 
       return {"outputs": top_decoded_ids, "scores": top_scores}
+    elif self.params["is_custom_beam_search"]:
+      # 使用beam search 方法做生成, 参考transformers库tf生成代码(generation_tf_utils.py)
+      encoder_outputs = tf.cast(encoder_outputs, self.params["dtype"])
+      batch_size = tf.shape(encoder_outputs)[0]
+
+      # 数据扩充到bts*num_beam倍
+      num_beams = self.params["beam_size"]
+      decoder_ids = tf.zeros([batch_size*num_beams, 1], dtype=tf.int32)  # 初始化start id
+      expanded_batch_idxs = tf.reshape(
+          tf.repeat(tf.expand_dims(tf.range(batch_size), -1), repeats=num_beams, axis=1),
+          shape=(-1,))
+      # expand encoder_outputs
+      encoder_outputs = tf.gather(encoder_outputs, expanded_batch_idxs, axis=0)
+
+      # generated hypotheses
+      max_decode_length = self.params["max_length_target"]
+      generated_hyps = [
+          BeamHypotheses(num_beams, max_decode_length,
+                         self.params["length_penalty"], early_stopping=self.params["early_stopping"])
+          for _ in range(batch_size)]
+      beam_scores = tf.zeros((batch_size, num_beams), dtype=tf.float32)
+      beam_scores = tf.reshape(beam_scores, (batch_size * num_beams,))
+      # done sentences
+      done = [False for _ in range(batch_size)]
+
+      for i in range(max_decode_length):
+        decoder_inputs = self.embedding_softmax_layer(decoder_ids)
+        decoder_inputs = tf.cast(decoder_inputs, self.params["dtype"])
+
+        length = tf.shape(decoder_inputs)[1]  # 获取当前序列长度
+        with tf.name_scope("add_pos_encoding"):
+            pos_encoding = model_utils.get_position_encoding(length, self.params["hidden_size"])
+            pos_encoding = tf.cast(pos_encoding, self.params["dtype"])
+            decoder_inputs += pos_encoding
+        if training:
+            decoder_inputs = tf.nn.dropout(decoder_inputs, rate=self.params["layer_postprocess_dropout"])
+
+        decoder_self_attention_bias = model_utils.get_decoder_self_attention_bias(
+            length, dtype=self.params["dtype"])
+        D, C_query, C_content, M = self.decoder_stack(
+            decoder_inputs,
+            encoder_outputs,
+            decoder_self_attention_bias,
+            # attention_bias,
+            attention_bias_query,
+            attention_bias_content,
+            training=training)
+
+        # (batch_size * num_beams, cur_len, vocab_size)
+        logits = self.distribute_layer(inputs, D, C_query, C_content, M, encoder_outputs,
+                                       attention_bias_query, attention_bias_content)
+
+        next_token_logits = logits[:, -1, :]  # (batch_size * num_beams, vocab_size)
+        temperature = self.params["temperature"]
+        if temperature != 1.0:
+            next_token_logits = next_token_logits / temperature
+        #  calculate log softmax score
+        scores = tf.nn.log_softmax(next_token_logits, axis=-1)  # (batch_size * num_beams, vocab_size)
+      pass
     else:
       # 使用贪婪方法进行推理
       encoder_outputs = tf.cast(encoder_outputs, self.params["dtype"])
@@ -441,17 +500,18 @@ class Transformer(tf.keras.Model):
 
         next_token_logits = logits[:, -1, :]
         if self.params["do_sample"]:
+          # current_id = tf.math.argmax(tf.nn.softmax(next_token_logits, axis=-1), axis=-1)
           temperature = self.params["temperature"]
           if temperature != 1.0:
             next_token_logits = next_token_logits / temperature
           next_token_logits = tf_top_k_top_p_filtering(next_token_logits,
                                                        top_k=self.params["top_k"],
                                                        top_p=self.params["top_p"])
-          # current_id = tf.random.categorical(next_token_logits, dtype=tf.int32, num_samples=1)
-          # current_id = tf.squeeze(current_id, axis=-1)
-          current_id = tf.argmax(tf.nn.softmax(next_token_logits, axis=-1), axis=-1)
+          current_id = tf.squeeze(tf.random.categorical(tf.nn.softmax(next_token_logits, axis=-1),
+                                                        dtype=tf.int32, num_samples=1), axis=-1)
+          # current_id = tf.math.argmax(tf.nn.softmax(next_token_logits, axis=-1), axis=-1)
         else:
-          current_id = tf.argmax(tf.nn.softmax(next_token_logits, axis=-1), axis=-1)
+          current_id = tf.math.argmax(tf.nn.softmax(next_token_logits, axis=-1), axis=-1)
 
         current_id = tf.cast(current_id, dtype=tf.int32)
         decoder_ids = tf.concat([decoder_ids, tf.expand_dims(current_id, axis=-1)], axis=-1)
