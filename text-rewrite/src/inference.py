@@ -75,9 +75,9 @@ def _init_text_encode(contexts, vocab_file, max_length_source=256):
     # segment = [1] * query_len
     # for id in range(content_num):
     #     if id == content_num - 1:
-    #         segment += [id + 1] * len(contexts[id])
+    #         segment += [id + 2] * len(contexts[id])
     #     else:
-    #         segment += [id + 1] * (len(contexts[id]) + 1)
+    #         segment += [id + 2] * (len(contexts[id]) + 1)
     segment = [1] * query_len + [2] * len(content_ids)
     assert len(inputs_ids) == len(segment)
     inputs_ids = inputs_ids[:max_length_source]

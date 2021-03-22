@@ -335,9 +335,9 @@ def init_dataset_from_text_file(
     segment = [1] * query_len
     for id in range(content_num):
       if id == content_num - 1:
-        segment += [id + 1] * len(items[id])
+        segment += [id + 2] * len(items[id])
       else:
-        segment += [id + 1] * (len(items[id]) + 1)
+        segment += [id + 2] * (len(items[id]) + 1)
     segment = segment[:max_length_source]
 
     query_rewrited_ids = convert_tokens_to_ids(vocab, query_rewrited)
