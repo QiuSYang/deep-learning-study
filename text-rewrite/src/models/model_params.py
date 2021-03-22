@@ -40,6 +40,7 @@ BASE_PARAMS = defaultdict(
     relu_dropout=0.1,
 
     # Training params
+    epochs=15,
     label_smoothing=0.1,
     learning_rate=0.5,
     learning_rate_decay_rate=1.0,
@@ -51,22 +52,27 @@ BASE_PARAMS = defaultdict(
     optimizer_adam_epsilon=1e-09,
 
     # Default prediction params
-    extra_decode_length=50,
     is_beam_search=False,
-    is_custom_bean_search=False,
-    beam_size=4,
+    is_custom_beam_search=True,
+    beam_size=5,
     alpha=0.6,  # used to calculate length normalization in beam search
+    length_penalty=1.0,
+    early_stopping=False,
 
     # do sample
     do_sample=False,
     top_k=0.0,
     top_p=0.9,
     temperature=0.7,
+    repetition_penalty=1.0,
 
     # TPU specific parameters
     use_tpu=False,
     static_batch=False,
     allow_ffn_pad=True,
+
+    # model
+    use_keras_model=False,  # 使用tf.keras.Model模块封装pipeline
 )
 
 BIG_PARAMS = BASE_PARAMS.copy()

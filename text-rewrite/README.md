@@ -9,6 +9,13 @@ transformer + pointer network 模型实现文本重写 --- tf2 实现
     --num_gpus=1 --enable_time_history=false 
     --mode="train"(or "eval" or "predict") 
     --use_ctl=false --enable_tensorboard=true
+    
+评测结果: tf2 transformer + pointer network model
+
+|model|bleu1|bleu2|bleu4|rouge_1|rouge_2|rouge_l|em|match|total|
+|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|
+|greedy|0.854|0.817|0.776|0.899|0.820|0.888|0.477|954|2000|
+|beam-5|0.869|0.827|0.788|0.909|0.826|0.889|0.485|970|2000|
 
 参考链接: 
     

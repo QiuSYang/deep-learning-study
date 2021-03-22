@@ -30,7 +30,7 @@ from src.models import embedding_layer
 from src.models import ffn_layer
 from src.models import metrics
 from src.utils.tokenizer import EOS_ID
-from src.utils.inference_utils import tf_top_k_top_p_filtering, BeamHypotheses
+from src.utils.inference_utils import *
 
 # Disable the not-callable lint error, since it claims many objects are not
 # callable when they actually are.
@@ -348,7 +348,7 @@ class Transformer(tf.keras.Model):
       encoder_outputs = tf.cast(encoder_outputs, self.params["dtype"])
       batch_size = tf.shape(encoder_outputs)[0]
       input_length = tf.shape(encoder_outputs)[1]
-      # max_decode_length = input_length + self.params["extra_decode_length"]
+      # max_decode_length = input_length + self.params["max_length_target"]
       max_decode_length = self.params["max_length_target"]
       # encoder_decoder_attention_bias = tf.cast(encoder_decoder_attention_bias,
       #                                          self.params["dtype"])
@@ -409,6 +409,8 @@ class Transformer(tf.keras.Model):
       # 使用beam search 方法做生成, 参考transformers库tf生成代码(generation_tf_utils.py)
       encoder_outputs = tf.cast(encoder_outputs, self.params["dtype"])
       batch_size = tf.shape(encoder_outputs)[0]
+      vocab_size = self.params["vocab_size"]
+      pad_token_id = 0
 
       # 数据扩充到bts*num_beam倍
       num_beams = self.params["beam_size"]
@@ -418,19 +420,25 @@ class Transformer(tf.keras.Model):
           shape=(-1,))
       # expand encoder_outputs
       encoder_outputs = tf.gather(encoder_outputs, expanded_batch_idxs, axis=0)
+      # expand attention_bias_query
+      attention_bias_query = tf.gather(attention_bias_query, expanded_batch_idxs, axis=0)
+      # expand attention_bias_content
+      attention_bias_content = tf.gather(attention_bias_content, expanded_batch_idxs, axis=0)
+      # expand inputs
+      inputs = tf.gather(inputs, expanded_batch_idxs, axis=0)
 
       # generated hypotheses
       max_decode_length = self.params["max_length_target"]
       generated_hyps = [
-          BeamHypotheses(num_beams, max_decode_length,
-                         self.params["length_penalty"], early_stopping=self.params["early_stopping"])
-          for _ in range(batch_size)]
+          BeamHypotheses(num_beams, max_decode_length, self.params["length_penalty"],
+                         early_stopping=self.params["early_stopping"]) for _ in range(batch_size)]
       beam_scores = tf.zeros((batch_size, num_beams), dtype=tf.float32)
       beam_scores = tf.reshape(beam_scores, (batch_size * num_beams,))
       # done sentences
       done = [False for _ in range(batch_size)]
 
-      for i in range(max_decode_length):
+      cur_len = shape_list(decoder_ids)[-1]
+      while cur_len < max_decode_length:
         decoder_inputs = self.embedding_softmax_layer(decoder_ids)
         decoder_inputs = tf.cast(decoder_inputs, self.params["dtype"])
 
@@ -458,12 +466,159 @@ class Transformer(tf.keras.Model):
                                        attention_bias_query, attention_bias_content)
 
         next_token_logits = logits[:, -1, :]  # (batch_size * num_beams, vocab_size)
+
+        repetition_penalty = self.params["repetition_penalty"]
+        if repetition_penalty != 1.0:
+            next_token_logits_penalties = create_next_token_logits_penalties(
+                decoder_ids, next_token_logits, repetition_penalty
+            )
+            next_token_logits = tf.math.multiply(next_token_logits, next_token_logits_penalties)
+
         temperature = self.params["temperature"]
         if temperature != 1.0:
             next_token_logits = next_token_logits / temperature
         #  calculate log softmax score
         scores = tf.nn.log_softmax(next_token_logits, axis=-1)  # (batch_size * num_beams, vocab_size)
-      pass
+
+        assert shape_list(scores) == [batch_size * num_beams, vocab_size]
+        # Add the log prob of the new beams to the log prob of the beginning of the sequence
+        # (sum of logs == log of the product)
+        next_scores = scores + tf.broadcast_to(
+                  beam_scores[:, None], (batch_size * num_beams, vocab_size))  # (batch_size * num_beams, vocab_size)
+        # re-organize to group the beam together (we are keeping top hypothesis across beams)
+        next_scores = tf.reshape(
+                  next_scores, (batch_size, num_beams * vocab_size))  # (batch_size, num_beams * vocab_size)
+        next_scores, next_tokens = tf.math.top_k(next_scores, k=2 * num_beams, sorted=True)
+        assert shape_list(next_scores) == shape_list(next_tokens) == [batch_size, 2*num_beams]
+
+        # next batch beam content
+        next_batch_beam = []
+        # for each sentence
+        for batch_idx in range(batch_size):
+          # if we are done with this sentence
+          if done[batch_idx]:
+            assert (len(generated_hyps[batch_idx]) >= num_beams), \
+                "Batch can only be done if at least {} beams have been generated".format(num_beams)
+            assert (
+                    EOS_ID is not None and pad_token_id is not None
+            ), "generated beams >= num_beams -> eos_token_id and pad_token have to be defined"
+            next_batch_beam.extend([(0, pad_token_id, 0)] * num_beams)  # pad the batch
+            continue
+          # next sentence beam content
+          next_sent_beam = []
+          # next tokens for this sentence
+          for beam_token_rank, (beam_token_id, beam_token_score) in enumerate(
+                  zip(next_tokens[batch_idx], next_scores[batch_idx])):
+            # get beam and token IDs
+            beam_id = beam_token_id // vocab_size
+            token_id = beam_token_id % vocab_size
+            effective_beam_id = batch_idx * num_beams + beam_id
+            # add to generated hypotheses if end of sentence or last iteration
+            if (EOS_ID is not None) and (token_id.numpy() == EOS_ID):
+              # if beam_token does not belong to top num_beams tokens, it should not be added
+              is_beam_token_worse_than_top_num_beams = beam_token_rank >= num_beams
+              if is_beam_token_worse_than_top_num_beams:
+                  continue
+              generated_hyps[batch_idx].add(
+                  tf.identity(decoder_ids[effective_beam_id]), beam_token_score.numpy())
+            else:
+              # and next predicted token if it is not eos_token
+              next_sent_beam.append((beam_token_score, token_id, effective_beam_id))
+
+            # the beam for next step is full
+            if len(next_sent_beam) == num_beams:
+              break
+
+          # Check if we are done so that we can save a pad step if all(done)
+          done[batch_idx] = done[batch_idx] or generated_hyps[batch_idx].is_done(
+              tf.reduce_sum(next_scores[batch_idx]).numpy(), cur_len)
+          # update next beam content
+          assert len(next_sent_beam) == num_beams, "Beam should always be full"
+          next_batch_beam.extend(next_sent_beam)
+          assert len(next_batch_beam) == num_beams * (batch_idx + 1)
+        # stop when we are done with each sentence
+        if all(done):
+            break
+
+        # sanity check / prepare next batch
+        assert len(next_batch_beam) == batch_size * num_beams
+        beam_scores = tf.convert_to_tensor([x[0] for x in next_batch_beam], dtype=tf.float32)
+        beam_tokens = tf.convert_to_tensor([x[1] for x in next_batch_beam], dtype=tf.int32)
+        beam_idx = tf.convert_to_tensor([x[2] for x in next_batch_beam], dtype=tf.int32)
+
+        # re-order batch and update current length
+        decoder_ids = tf.stack([tf.identity(decoder_ids[x, :]) for x in beam_idx])
+        decoder_ids = tf.concat([decoder_ids, tf.expand_dims(beam_tokens, 1)], axis=-1)
+        cur_len = cur_len + 1
+
+      # finalize all open beam hypotheses and end to generated hypotheses
+      for batch_idx in range(batch_size):
+        # Add all open beam hypothesis to generated_hyps
+        if done[batch_idx]:
+            continue
+        # test that beam scores match previously calculated scores if not eos and batch_idx not done
+        if EOS_ID is not None and all(
+                (token_id % vocab_size).numpy().item() != EOS_ID for token_id in next_tokens[batch_idx]):
+          assert tf.reduce_all(
+              next_scores[batch_idx, :num_beams] == tf.reshape(beam_scores, (batch_size, num_beams))[batch_idx]
+          ), "If batch_idx is not done, final next scores: {} have to equal to accumulated beam_scores: {}".format(
+              next_scores[:, :num_beams][batch_idx], tf.reshape(beam_scores, (batch_size, num_beams))[batch_idx])
+        # need to add best num_beams hypotheses to generated hyps
+        for beam_id in range(num_beams):
+          effective_beam_id = batch_idx * num_beams + beam_id
+          final_score = beam_scores[effective_beam_id].numpy().item()
+          final_tokens = decoder_ids[effective_beam_id]
+          generated_hyps[batch_idx].add(final_tokens, final_score)
+
+      output_batch_size = batch_size
+      output_num_return_sequences_per_batch = 1  # 仅输出一条数据
+      # select the best hypothese
+      sent_lengths_list = []
+      best = []
+
+      # retrieve best hypotheses
+      for i, hypothese in enumerate(generated_hyps):
+        sorted_hyps = sorted(hypothese.beams, key=lambda x: x[0])
+        for j in range(output_num_return_sequences_per_batch):
+          best_hyp = sorted_hyps.pop()[1]
+          sent_lengths_list.append(len(best_hyp))
+          best.append(best_hyp)
+      assert output_batch_size == len(best), "Output batch size {} must match output bean hypotheses {}".format(
+                                              output_batch_size, len(best))
+      sent_lengths = tf.convert_to_tensor(sent_lengths_list, dtype=tf.int32)
+
+      # shorter batches are filled with pad_token
+      if tf.reduce_min(sent_lengths).numpy() != tf.reduce_max(sent_lengths).numpy():
+        sent_max_len = min(tf.reduce_max(sent_lengths).numpy() + 1, max_decode_length)
+        decoded_list = []
+
+        # fill with hypothesis and eos_token_id if necessary
+        for i, hypo in enumerate(best):
+          assert sent_lengths[i] == shape_list(hypo)[0]
+          # if sent_length is max_len do not pad
+          if sent_lengths[i] == sent_max_len:
+            decoded_slice = hypo
+          else:
+            # else pad to sent_max_len
+            num_pad_tokens = sent_max_len - sent_lengths[i]
+            padding = pad_token_id * tf.ones((num_pad_tokens, ), dtype=tf.int32)
+            decoded_slice = tf.concat([hypo, padding], axis=-1)
+
+            # finish sentence with eos token
+            if sent_lengths[i] < max_decode_length:
+              decoded_slice = tf.where(
+                  tf.range(sent_max_len, dtype=tf.int32) == sent_lengths[i],
+                  EOS_ID * tf.ones((sent_max_len, ), dtype=tf.int32),
+                  decoded_slice)
+          # add to list
+          decoded_list.append(decoded_slice)
+        decoded = tf.stack(decoded_list)
+      else:
+        # none of the hypotheses have an eos_token
+        assert (len(hypo) == max_decode_length for hypo in best)
+        decoded = tf.stack(best)
+
+      return decoded[:, 1:]  # 删除[PAD]起始符
     else:
       # 使用贪婪方法进行推理
       encoder_outputs = tf.cast(encoder_outputs, self.params["dtype"])
@@ -499,6 +654,14 @@ class Transformer(tf.keras.Model):
                                        attention_bias_query, attention_bias_content)
 
         next_token_logits = logits[:, -1, :]
+
+        repetition_penalty = self.params["repetition_penalty"]
+        if repetition_penalty != 1.0:
+            next_token_logits_penalties = create_next_token_logits_penalties(
+                decoder_ids, next_token_logits, repetition_penalty
+            )
+            next_token_logits = tf.math.multiply(next_token_logits, next_token_logits_penalties)
+
         if self.params["do_sample"]:
           # current_id = tf.math.argmax(tf.nn.softmax(next_token_logits, axis=-1), axis=-1)
           temperature = self.params["temperature"]

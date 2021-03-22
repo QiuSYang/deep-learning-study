@@ -301,13 +301,23 @@ def init_dataset_from_text_file(
 
   for i, line in enumerate(lines):
     items = line.split('\t')
-    if len(items) < 4:
-      print('** Illegal instance at line {0} **'.format(i))
-      continue
 
-    query = list(items[2].replace(' ', '').lower())
-    content = list(items[0].lower()) + ["[SEP]"] + list(items[1].lower())
-    query_rewrited = list(items[3].replace(' ', '').lower())
+    # if len(items) < 4:
+    #   print('** Illegal instance at line {0} **'.format(i))
+    #   continue
+    # query = list(items[2].replace(' ', '').lower())
+    # content = list(items[0].lower()) + ["[SEP]"] + list(items[1].lower())
+    # query_rewrited = list(items[3].replace(' ', '').lower())
+
+    # 支持上下文不定长度输入数据
+    query = list(items[-2].replace(' ', '').lower())  # 倒数第二句为要改写的句子
+    query_rewrited = list(items[-1].replace(' ', '').lower())  # 倒数第一句为目标句子
+    content, content_num = [], len(items[:-2])
+    for id, item in enumerate(items[:-2]):
+      if id == content_num - 1:
+        content += list(item.lower())
+      else:
+        content += list(item.lower()) + ["[SEP]"]
 
     # convert into ids
     query_ids = convert_tokens_to_ids(vocab, query)
@@ -321,7 +331,13 @@ def init_dataset_from_text_file(
     mask = ([1] * query_len)[:max_length_source]  # only query visible
 
     # segment
-    segment = [1] * query_len + [2] * (len(items[0]) + 1) + [3] * len(items[1])
+    # segment = [1] * query_len + [2] * (len(items[0]) + 1) + [3] * len(items[1])
+    segment = [1] * query_len
+    for id in range(content_num):
+      if id == content_num - 1:
+        segment += [id + 1] * len(items[id])
+      else:
+        segment += [id + 1] * (len(items[id]) + 1)
     segment = segment[:max_length_source]
 
     query_rewrited_ids = convert_tokens_to_ids(vocab, query_rewrited)

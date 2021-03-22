@@ -1,6 +1,7 @@
 """
 # inference 使用的共有函数
 """
+import numpy as np
 import tensorflow as tf
 
 
@@ -25,6 +26,20 @@ def set_tensor_by_indices_to_value(tensor, indices, value):
     # create value_tensor since tensor value assignment is not possible in TF
     value_tensor = tf.zeros_like(tensor) + value
     return tf.where(indices, value_tensor, tensor)
+
+
+def create_next_token_logits_penalties(input_ids, logits, repetition_penalty):
+    # create logit penalties for already seen input_ids
+    token_penalties = np.ones(shape_list(logits))
+    prev_input_ids = [np.unique(input_id) for input_id in input_ids.numpy()]
+    for i, prev_input_id in enumerate(prev_input_ids):
+        logit_penalized = logits[i].numpy()[prev_input_id]
+        logit_penalties = np.zeros(logit_penalized.shape)
+        # if previous logit score is < 0 then multiply repetition penalty else divide
+        logit_penalties[logit_penalized < 0] = repetition_penalty
+        logit_penalties[logit_penalized > 0] = 1 / repetition_penalty
+        np.put(token_penalties[i], prev_input_id, logit_penalties)
+    return tf.convert_to_tensor(token_penalties, dtype=tf.float32)
 
 
 def tf_top_k_top_p_filtering(logits, top_k=0, top_p=1.0, filter_value=-float("Inf"), min_tokens_to_keep=1):

@@ -25,6 +25,7 @@ from src.models import transformer
 from src.models import translate
 from src.utils import tokenizer
 from src.utils import dataset
+from src.evaluate import Metrics
 
 INF = int(1e9)
 BLEU_DIR = "bleu"
@@ -102,6 +103,7 @@ def translate_file(model,
         return ds
 
     translations = []
+    labels = []
     for id, inputs in enumerate(tqdm(input_generator())):
         inputs, segments, masks, targets = inputs[0]
         if params["is_beam_search"]:
@@ -114,6 +116,9 @@ def translate_file(model,
             if j + id * batch_size < total_samples:
                 translation = _trim_and_decode(val_outputs[j].numpy(), subtokenizer)
                 translations.append(translation)
+                # labels.append(sorted_inputs[j + id * batch_size].split("\t")[-1])
+                label = _trim_and_decode(targets[j].numpy(), subtokenizer)
+                labels.append(label)
             if print_all_translations:
                 logging.info("Translating:\n\tInput: %s\n\tOutput: %s",
                            sorted_inputs[j + id * batch_size], translation)
@@ -127,6 +132,8 @@ def translate_file(model,
         with tf.io.gfile.GFile(output_file, "w") as f:
             for i in sorted_keys:
                 f.write("%s\n" % translations[i])
+
+    return translations, labels
 
 
 def translate_and_compute_bleu(model,
@@ -151,9 +158,9 @@ def translate_and_compute_bleu(model,
     # Create temporary file to store translation.
     # tmp = tempfile.NamedTemporaryFile(delete=False)
     # tmp_filename = tmp.name
-    tmp_filename = os.path.join(work_path, "data/generate_results_2.txt")
+    tmp_filename = os.path.join(work_path, "data/generate_results_bs.txt")
 
-    translate_file(
+    predicts, labels, = translate_file(
         model,
         params,
         subtokenizer,
@@ -162,11 +169,19 @@ def translate_and_compute_bleu(model,
         vocab_file=params["vocab_file"],
         print_all_translations=True)
 
-    # Compute uncased and cased bleu scores.
-    uncased_score = compute_bleu.bleu_wrapper(bleu_ref, tmp_filename, False)
-    cased_score = compute_bleu.bleu_wrapper(bleu_ref, tmp_filename, True)
-    # os.remove(tmp_filename)
-    return uncased_score, cased_score
+    # # Compute uncased and cased bleu scores.
+    # uncased_score = compute_bleu.bleu_wrapper(bleu_ref, tmp_filename, False)
+    # cased_score = compute_bleu.bleu_wrapper(bleu_ref, tmp_filename, True)
+    # # os.remove(tmp_filename)
+    # return uncased_score, cased_score
+
+    # Compute evaluate metrics
+    logging.info("Compute evaluate metrics")
+    Metrics.bleu_score(predicts, labels)
+    Metrics.rouge_score(predicts, labels)
+    em_score = Metrics.em_score(predicts, labels)
+
+    return em_score
 
 
 def evaluate_and_log_bleu(model,
@@ -189,12 +204,10 @@ def evaluate_and_log_bleu(model,
     """
     subtokenizer = tokenizer.Subtokenizer(vocab_file)
 
-    uncased_score, cased_score = translate_and_compute_bleu(
-            model, params, subtokenizer, bleu_source, bleu_ref)
+    em_score = translate_and_compute_bleu(model, params, subtokenizer, bleu_source, bleu_ref)
 
-    logging.info("Bleu score (uncased): %s", uncased_score)
-    logging.info("Bleu score (cased): %s", cased_score)
-    return uncased_score, cased_score
+    logging.info("Em score: {}".format(em_score))
+    return em_score
 
 
 class TextRewriteTask(object):
@@ -238,7 +251,10 @@ class TextRewriteTask(object):
         params["bleu_ref"] = flags_obj.bleu_ref
 
         # crate model and optimizer
-        self.model = None  # transformer.Transformer(params, name="transformer_v2")
+        if params["use_keras_model"]:
+            self.model = None
+        else:
+            self.model = transformer.Transformer(params, name="transformer_v2")
         self.opt = self._create_optimizer()
 
     def _create_model(self, params, is_train=False):
@@ -294,7 +310,15 @@ class TextRewriteTask(object):
         """训练模型"""
         params = self.params
         # 创建模型
-        self.model = self._create_model(params, is_train=True)
+        if params["use_keras_model"]:
+            self.model = self._create_model(params, is_train=True)
+        else:
+            inputs, segments, masks, target = tf.zeros((1, 10), dtype=tf.int32), \
+                                              tf.zeros((1, 10), dtype=tf.int32), \
+                                              tf.zeros((1, 10), dtype=tf.int32), \
+                                              tf.zeros((1, 10), dtype=tf.int32)
+            # Call the model once to create the weights
+            _ = self.model([inputs, segments, masks, target], training=True)
         self.model.summary()
 
         # 模型恢复训练
@@ -317,7 +341,7 @@ class TextRewriteTask(object):
 
         with summary_writer.as_default():
             steps = 0
-            for epoch in tf.range(1, 11):
+            for epoch in tf.range(1, params["epochs"]+1):
                 logging.info("Train epoch: {}".format(epoch))
                 for batch_id, inputs in enumerate(tqdm(train_ds)):
                     train_loss_metric.reset_states()
@@ -379,32 +403,32 @@ class TextRewriteTask(object):
         """模型评估"""
         if is_restore:
             # 模型恢复
-            # 创建模型
-            self.model = self._create_model(params, is_train=False)
+            # # 创建模型
+            if params["use_keras_model"]:
+                self.model = self._create_model(params, is_train=False)
+            else:
+                inputs, segments, masks = tf.zeros((1, 10), dtype=tf.int32), \
+                                          tf.zeros((1, 10), dtype=tf.int32), \
+                                          tf.zeros((1, 10), dtype=tf.int32)
+                # Call the model once to create the weights.
+                _ = self.model([inputs, segments, masks], training=False)
             self.model.summary()
 
-            # self.model = transformer.Transformer(params, name="transformer_v2")
-            # inputs, segments, masks = tf.zeros((1, 10), dtype=tf.int32), \
-            #                           tf.zeros((1, 10), dtype=tf.int32), \
-            #                           tf.zeros((1, 10), dtype=tf.int32)
-            # _ = self.model([inputs, segments, masks], training=False)
-            # self.model.summary()
-
             # checkpoint = tf.train.Checkpoint(model=self.model)
-            latest_checkpoint = tf.train.latest_checkpoint(params["model_dir"])
-            # latest_checkpoint = os.path.join(params["model_dir"], "7.ckpt")
+            # latest_checkpoint = tf.train.latest_checkpoint(params["model_dir"])
+            latest_checkpoint = os.path.join(params["model_dir"], "10.ckpt")
             if latest_checkpoint:
                 # checkpoint.restore(latest_checkpoint)
                 self.model.load_weights(latest_checkpoint)
                 logging.info("Loaded checkpoint {}".format(latest_checkpoint))
 
-        uncased_score, cased_score = evaluate_and_log_bleu(self.model,
-                                                           params,
-                                                           bleu_source=params["bleu_source"],
-                                                           bleu_ref=params["bleu_ref"],
-                                                           vocab_file=params["vocab_file"])
+        em_score = evaluate_and_log_bleu(self.model,
+                                         params,
+                                         bleu_source=params["bleu_source"],
+                                         bleu_ref=params["bleu_ref"],
+                                         vocab_file=params["vocab_file"])
 
-        return uncased_score, cased_score
+        return em_score
 
 
 def main(_):
