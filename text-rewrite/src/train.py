@@ -116,9 +116,9 @@ def translate_file(model,
             if j + id * batch_size < total_samples:
                 translation = _trim_and_decode(val_outputs[j].numpy(), subtokenizer)
                 translations.append(translation)
-                # labels.append(sorted_inputs[j + id * batch_size].split("\t")[-1])
-                label = _trim_and_decode(targets[j].numpy(), subtokenizer)
-                labels.append(label)
+                labels.append(sorted_inputs[j + id * batch_size].split("\t")[-1])
+                # label = _trim_and_decode(targets[j].numpy(), subtokenizer)
+                # labels.append(label)
             if print_all_translations:
                 logging.info("Translating:\n\tInput: %s\n\tOutput: %s",
                            sorted_inputs[j + id * batch_size], translation)
