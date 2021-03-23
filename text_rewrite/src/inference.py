@@ -3,33 +3,50 @@
 """
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+import argparse
+import logging
 import numpy as np
 import tensorflow as tf
-from absl import (
-    logging,
-    app,
-    flags
-)
 from tqdm import tqdm
 from official.utils.flags import core as flags_core
 
 from src.models import misc
+from src.models import model_params
 from src.models import transformer
 from src.utils import tokenizer
 from src.utils.dataset import load_vocab, convert_tokens_to_ids
 
+from flask import Flask, json, jsonify, request  # server
+
+logger = logging.getLogger(__name__)
 work_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PARAMS_MAP = {
+    'tiny': model_params.TINY_PARAMS,
+    'base': model_params.BASE_PARAMS,
+    'big': model_params.BIG_PARAMS,
+}
+
+sever_app = Flask(__name__)  # flask server
 
 
-def set_parameters(flags_obj):
+def set_parameters():
     """设置参数"""
-    num_gpus = flags_core.get_num_gpus(flags_obj)
-    params = misc.get_model_params(flags_obj.param_set, num_gpus)
+    parse = argparse.ArgumentParser(description="设置基本参数")
+    parse.add_argument("--vocab_file", type=str, required=True,
+                       help="tokenizer 词汇表位置.")
+    parse.add_argument("--model_dir", type=str, required=True,
+                       help="已训练模型保存路径.")
+    parse.add_argument("--dtype", type=str, default="fp32",
+                       help="运算过程中数据类型.")
+    parse.add_argument("--param_set", type=str, default="tiny",
+                       help="模型结构配置参数")
+    args = parse.parse_args()
 
-    params["vocab_file"] = flags_obj.vocab_file
-    params["num_gpus"] = num_gpus
-    params["model_dir"] = flags_obj.model_dir
-    params["dtype"] = flags_core.get_tf_dtype(flags_obj)
+    params = PARAMS_MAP[args.param_set].copy()
+
+    params["vocab_file"] = args.vocab_file
+    params["model_dir"] = args.model_dir
+    params["dtype"] = flags_core.get_tf_dtype(args)
 
     return params
 
@@ -99,26 +116,8 @@ def _init_text_encode(contexts, vocab_file, max_length_source=256):
     return dataset
 
 
-def inference(params, contexts: list):
+def inference(model, subtokenizer, params, contexts: list):
     """文本重写"""
-    logging.info("Restore Model")
-    model = transformer.Transformer(params, name="transformer_v2")
-    inputs, segments, masks = tf.zeros((1, 10), dtype=tf.int32), \
-                              tf.zeros((1, 10), dtype=tf.int32), \
-                              tf.zeros((1, 10), dtype=tf.int32)
-    # Call the model once to create the weights.
-    _ = model([inputs, segments, masks], training=False)
-    model.summary()
-
-    latest_checkpoint = tf.train.latest_checkpoint(params["model_dir"])
-    if latest_checkpoint:
-        model.load_weights(latest_checkpoint)
-        logging.info("Loaded checkpoint {}".format(latest_checkpoint))
-    else:
-        raise ModuleNotFoundError("Load model failure.")
-
-    subtokenizer = tokenizer.Subtokenizer(params["vocab_file"])
-
     def parse_example(serialized_example):
         """Return inputs and targets Tensors from a serialized tf.Example."""
         inputs = serialized_example["inputs"]
@@ -142,7 +141,6 @@ def inference(params, contexts: list):
             val_outputs, _ = model([inputs, segments, masks], training=False)
         else:
             val_outputs = model([inputs, segments, masks], training=False)
-
         length = len(val_outputs)
         for j in range(length):
             result = _trim_and_decode(val_outputs[j].numpy(), subtokenizer)
@@ -151,19 +149,61 @@ def inference(params, contexts: list):
     return results
 
 
-def main(_):
-    """主函数"""
-    flags_obj = flags.FLAGS
-    params = set_parameters(flags_obj)
+def load_model_tokenizer(params):
+    logger.info("Restore Model")
+    model = transformer.Transformer(params, name="transformer_v2")
+    inputs, segments, masks = tf.zeros((1, 10), dtype=tf.int32), \
+                              tf.zeros((1, 10), dtype=tf.int32), \
+                              tf.zeros((1, 10), dtype=tf.int32)
+    # Call the model once to create the weights.
+    _ = model([inputs, segments, masks], training=False)
+    model.summary()
 
-    logging.info("Inference start")
-    contexts = ["你知道板泉井水吗", "知道", "她是歌手"]
-    results = inference(params, contexts=contexts)
+    latest_checkpoint = tf.train.latest_checkpoint(params["model_dir"])
+    if latest_checkpoint:
+        model.load_weights(latest_checkpoint)
+        logger.info("Loaded checkpoint {}".format(latest_checkpoint))
+    else:
+        raise ModuleNotFoundError("Load model failure.")
+
+    subtokenizer = tokenizer.Subtokenizer(params["vocab_file"])
+
+    return model, subtokenizer
+
+
+def main(contexts: list):
+    """主函数"""
+    params = set_parameters()
+    logger.info("Load model and tokenizer")
+    model, tokenizer = load_model_tokenizer(params)
+
+    logger.info("Inference start")
+    results = inference(model, tokenizer, params, contexts=contexts)
     for result in results:
-        logging.info("result: {}".format(result))
+        logger.info("result: {}".format(result))
+
+
+@sever_app.route("/rewrite", methods=["POST"])
+def text_rewrite():
+    if request.method == "POST":
+        data = json.loads(request.data)
+        results = inference(model, subtokenizer, params, contexts=data["contexts"])
+        return jsonify(results=results)
+    else:
+        raise
 
 
 if __name__ == '__main__':
-    logging.set_verbosity(logging.INFO)
-    misc.define_transformer_flags()
-    app.run(main)
+    logging.basicConfig(format="[%(asctime)s %(filename)s: %(lineno)s] %(message)s",
+                        datefmt="%Y-%m-%d %H:%M:%S",
+                        level=logging.INFO,
+                        filename=None,
+                        filemode="a")  # set logging
+    is_server = True
+    if not is_server:
+        contexts = ["你知道板泉井水吗", "知道", "她是歌手"]
+        main(contexts)
+    else:
+        params = set_parameters()
+        model, subtokenizer = load_model_tokenizer(params)
+        sever_app.run(host="0.0.0.0", port="8280")

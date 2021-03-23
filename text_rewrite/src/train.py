@@ -415,8 +415,8 @@ class TextRewriteTask(object):
             self.model.summary()
 
             # checkpoint = tf.train.Checkpoint(model=self.model)
-            # latest_checkpoint = tf.train.latest_checkpoint(params["model_dir"])
-            latest_checkpoint = os.path.join(params["model_dir"], "10.ckpt")
+            # latest_checkpoint = tf.train.latest_checkpoint(params["model_dir"])  # last model
+            latest_checkpoint = os.path.join(params["model_dir"], "8.ckpt")  # best model
             if latest_checkpoint:
                 # checkpoint.restore(latest_checkpoint)
                 self.model.load_weights(latest_checkpoint)

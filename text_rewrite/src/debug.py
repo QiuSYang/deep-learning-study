@@ -52,11 +52,22 @@ def load_model(input_checkpoint):
         pass
 
 
+def requests_server():
+    import requests
+    import json
+    data = {"id": 1, "contexts": ["你知道板泉井水吗", "知道", "她是歌手"]}
+    data = json.dumps(data)  # encoder
+    r = requests.post("http://10.128.61.27:8280/rewrite", data=data)
+    print(json.loads(r.text))
+
+
 if __name__ == '__main__':
-    checkpoint_path = tf.train.latest_checkpoint("../models/tiny_custom")  # "transformer/model_tiny/model.ckpt-282"
-    print("last model path: {}".format(checkpoint_path))
-    # load_model(checkpoint_path)
-    # checkpoint_path = "/home/yckj2453/nlp_space/tf-1-codes/dialogue-utterance-rewriter/transformer/model_tiny/model.ckpt-282"
-    # checkpoint_path = "/home/yckj2609/project/KBQA/multi-dialoque-ir/dialogue-rewriter-master/transformer/generated_model/model.ckpt-5630"
-    # freeze_graph(checkpoint_path, "model_tiny_x")
-    load_checkpoints(checkpoint_path)
+    # checkpoint_path = tf.train.latest_checkpoint("../models/tiny_custom")  # "transformer/model_tiny/model.ckpt-282"
+    # print("last model path: {}".format(checkpoint_path))
+    # # load_model(checkpoint_path)
+    # # checkpoint_path = "/home/yckj2453/nlp_space/tf-1-codes/dialogue-utterance-rewriter/transformer/model_tiny/model.ckpt-282"
+    # # checkpoint_path = "/home/yckj2609/project/KBQA/multi-dialoque-ir/dialogue-rewriter-master/transformer/generated_model/model.ckpt-5630"
+    # # freeze_graph(checkpoint_path, "model_tiny_x")
+    # load_checkpoints(checkpoint_path)
+
+    requests_server()
