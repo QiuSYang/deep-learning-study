@@ -184,7 +184,8 @@ def main(contexts: list):
 
 
 @sever_app.route("/rewrite", methods=["POST"])
-def text_rewrite():
+def rewrite():
+    """文本重写接口函数"""
     if request.method == "POST":
         data = json.loads(request.data)
         results = inference(model, subtokenizer, params, contexts=data["contexts"])
