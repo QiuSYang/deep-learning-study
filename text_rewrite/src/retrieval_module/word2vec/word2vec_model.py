@@ -44,7 +44,7 @@ class CustomWord2Vec(object):
         for key in model.index2word:
             feature = model.get_vector(key)
             # 归一化
-            feature = feature / np.linalg.norm(feature)
+            # feature = feature / np.linalg.norm(feature)
             keys.append(key)
             features.append(feature)
 
@@ -68,9 +68,15 @@ class CustomWord2Vec(object):
     def get_vector(self, word):
         return self.word_vector(word)
 
-    def get_sentence_vector(self, tokens):
+    def normalization(self, arr: np.ndarray):
+        min_value, max_value = np.min(arr, axis=-1), np.max(arr, axis=-1)
+        range = max_value - min_value
+        normalization = (arr - min_value) / range
+        return normalization
+
+    def get_sentence_vector(self, tokens, is_normalization=False):
         """获取句子的embedding向量"""
-        z = np.zeros(200)
+        z = np.zeros(200, dtype=np.float32)
         count = 0
 
         for token in tokens:
@@ -81,8 +87,12 @@ class CustomWord2Vec(object):
 
         if count == 0:
             count = 1
+        vector = (z / count).astype('float32')
 
-        return (z / count).astype('float32')
+        if not is_normalization:
+            return vector
+        else:
+            return vector / np.linalg.norm(vector)
 
 
 if __name__ == "__main__":
@@ -99,7 +109,7 @@ if __name__ == "__main__":
     logger.info("Load origin words")
     model_obj.keyed_vectors_load_model(tencent_word2vec_file)
 
-    words_file = file = os.path.join(work_root, "models/tencent_words/1000000-small.words")
-    features_file = file = os.path.join(work_root, "models/tencent_words/1000000-small.npy")
+    words_file = os.path.join(work_root, "models/tencent_words/1000000-small.words")
+    features_file = os.path.join(work_root, "models/tencent_words/1000000-small.npy")
     logger.info("Save key value to list and .npy")
     model_obj.save(words_file, features_file)
