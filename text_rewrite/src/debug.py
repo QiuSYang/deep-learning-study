@@ -55,9 +55,9 @@ def load_model(input_checkpoint):
 def requests_server():
     import requests
     import json
-    data = {"id": 1, "contexts": ["你知道板泉井水吗", "知道", "她是歌手"]}
+    data = {"id": 1, "contexts": ["“七方”之说源自哪里？", "它可分为哪些类？"], "top_k": 5}
     data = json.dumps(data)  # encoder
-    r = requests.post("http://10.128.61.27:8280/rewrite", data=data)
+    r = requests.post("http://10.128.61.27:8280/qa", data=data)
     print(json.loads(r.text))
 
 

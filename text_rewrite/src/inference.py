@@ -32,9 +32,11 @@ sever_app = Flask(__name__)  # flask server
 def set_parameters():
     """设置参数"""
     parse = argparse.ArgumentParser(description="设置基本参数")
-    parse.add_argument("--vocab_file", type=str, required=True,
+    parse.add_argument("--vocab_file", type=str,
+                       default=os.path.join(work_path, "resource/vocab.txt"),
                        help="tokenizer 词汇表位置.")
-    parse.add_argument("--model_dir", type=str, required=True,
+    parse.add_argument("--model_dir", type=str,
+                       default=os.path.join(work_path, "models/tiny_x"),
                        help="已训练模型保存路径.")
     parse.add_argument("--dtype", type=str, default="fp32",
                        help="运算过程中数据类型.")
