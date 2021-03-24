@@ -1,3 +1,6 @@
+"""
+# Torch 实现transformer结构
+"""
 import math
 import torch
 import torch.nn as nn
