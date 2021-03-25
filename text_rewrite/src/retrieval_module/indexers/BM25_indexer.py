@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import jieba
 import faiss
 import logging
 import json
@@ -7,8 +8,30 @@ import math
 from tqdm import tqdm
 from gensim.models import KeyedVectors
 
-from indexers.faiss_indexers import *
-from utils.doc import *
+from src.retrieval_module.indexers.faiss_indexers import *
+
+logger = logging.getLogger(__name__)
+
+
+def tokenize_spt(text):
+
+    sp_token = ['<img>', '<url>', '<sos>', '<eos>', '<num>']
+
+    resp_list = list()
+    tmp_list = jieba.cut(text, cut_all=False)
+
+    seg_list = list(tmp_list)
+    i = 0
+
+    while i < len(seg_list):
+        if ''.join(seg_list[i:i + 3]) in sp_token:
+            resp_list.append(''.join(seg_list[i:i + 3]))
+            i = i + 3
+        else:
+            resp_list.append(''.join(seg_list[i]))
+            i = i + 1
+
+    return resp_list
 
 
 class BM25Indexer(object):
@@ -31,7 +54,8 @@ class BM25Indexer(object):
         if self.w2v_model:
             self.FEATURE_SIZE = self.w2v_model.FEATURE_SIZE
 
-        signals = "！？｡＂＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃》「」『』【】〔〕〖〗〘〙〚〛〜〝〞〟〰〾〿–—‘’‛“”„‟…‧﹏.!#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~"
+        signals = "！？｡＂＃＄％＆＇（）＊＋，－／：；＜＝＞＠［＼］＾＿｀｛｜｝～｟｠｢｣､、〃》「」『』【】" \
+                  "〔〕〖〗〘〙〚〛〜〝〞〟〰〾〿–—‘’‛“”„‟…‧﹏.!#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~"
         self.signals = set(tokenize_spt(signals))
 
     def add_docs(self, docs):
@@ -177,11 +201,12 @@ class BM25Indexer(object):
                 if doc_index not in scores:
                     scores[doc_index] = 0
                 d = len(self.docs[doc_index])
-                scores[doc_index] += simlarity * (self.idf[word] * self.f[doc_index][word] * (self.k1 + 1)
-                                      / (self.f[doc_index][word] + self.k1 * (1 - self.b + self.b * d / self.avgdl)))
+                scores[doc_index] += simlarity * (self.idf[word] * self.f[doc_index][word] * (self.k1 + 1) /
+                                     (self.f[doc_index][word] + self.k1 * (1 - self.b + self.b * d / self.avgdl)))
         scores = {key: value / max(base_score, self.doc_scores[key]) for key, value in scores.items()}
         scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
         # for doc_index, score in scores[:top_n]:
         #     print(score, "Q:" + "".join(self.docs[doc_index]), "score:", self.doc_scores[doc_index], "doc:", self.f[doc_index])
+
         return [[score, doc_index] for doc_index, score in scores[:top_n]]
-        
