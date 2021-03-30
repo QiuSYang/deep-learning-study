@@ -1,17 +1,15 @@
 # 自然语言处理
 自然语言处理（Natural Language Processing，简称NLP）被誉为人工智能皇冠上的明珠，是计算机科学和人工智能领域的一个重要方向。它主要研究人与计算机之间，使用自然语言进行有效通信的各种理论和方法。简单来说，计算机以用户的自然语言形式作为输入，在其内部通过定义的算法进行加工、计算等系列操作后（用以模拟人类对自然语言的理解），再返回用户所期望的结果，如 **图1** 所示。
-<br></br>
-<center><img src="https://github.com/QiuSYang/deep-learning-study/blob/master/aistudio_baidu_dl/natural_language_processing/images/1.gif" width="" ></center>
-<center><br>图1：自然语言处理示意图 </br></center>
-<br></br>
+
+![图1：自然语言处理示意图](./images/1.gif)
+图2：自然语言处理技术在各领域的应用
 
 自然语言处理是一门融合语言学、计算机科学和数学于一体的科学。它不仅限于研究语言学，还是研究能高效实现自然语言理解和自然语言生成的计算机系统，特别是其中的软件系统，因此它是计算机科学的一部分。
 
 随着计算机和互联网技术的发展，自然语言处理技术在各领域广泛应用，如 **图2** 所示。在过去的几个世纪，工业革命用机械解放了人类的双手，在当今的人工智能革命中，计算机将代替人工，处理大规模的自然语言信息。我们平时常用的搜索引擎，新闻推荐，智能音箱等产品，都是以自然语言处理技术为核心的互联网和人工智能产品。
 
-<center><img src="https://github.com/QiuSYang/deep-learning-study/blob/master/aistudio_baidu_dl/natural_language_processing/images/2.jpg" width="800" ></center>
-<center><br>图2：自然语言处理技术在各领域的应用</br></center>
-<br></br>
+![图2：自然语言处理技术在各领域的应用](./images/2.jpg)
+图2：自然语言处理技术在各领域的应用
 
 此外，自然语言处理技术的研究也在日新月异变化，每年投向ACL（Annual Meeting of the Association for Computational Linguistics，计算语言学年会，自然语言处理领域的顶级会议）的论文数成倍增长，自然语言处理的应用效果被不断刷新，有趣的任务和算法更是层出不穷。
 
