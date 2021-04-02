@@ -315,8 +315,8 @@ def evaluate(model, valid_dataset):
     model.eval()
     correct_num, total_num = 0, len(valid_dataset)
     for step, (center_words, target_words, label) in enumerate(tqdm(valid_dataset)):
-        center_words_var = paddle.to_tensor(center_words)
-        target_words_var = paddle.to_tensor(target_words)
+        center_words_var = paddle.to_tensor([center_words])
+        target_words_var = paddle.to_tensor([target_words])
 
         pred = model(center_words_var, target_words_var)
         pred_label = 1 if pred.numpy()[0] > 0.5 else 0
@@ -387,6 +387,17 @@ def inference(model_file, word2id_dict, id2word_dict):
     model.eval()
 
     word = input("input word: ")
+    word_id = word2id_dict[word]
+    word_ = input("input word_: ")
+    word_id_ = word2id_dict[word_]
+
+    center_words_var = paddle.to_tensor([word_id])
+    target_words_var = paddle.to_tensor([word_id_])
+
+    pred = model(center_words_var, target_words_var)
+    pred_label = 1 if pred.numpy()[0] > 0.5 else 0
+
+    return pred_label
 
 
 def save_json_data(data_file, data_obj):
