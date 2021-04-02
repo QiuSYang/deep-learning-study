@@ -292,7 +292,7 @@ def train(model, opt, dataset, word2id_dict, id2word_dict, batch_size=512, epoch
         loss = model(center_words_var, target_words_var, label_var)
 
         # 反向传播
-        loss.backword()
+        loss.backward()
         # 程序根据loss，完成一步对参数的优化更新
         opt.step()
         # 清空模型中的梯度，以便于下一个mini-batch进行更新
@@ -341,7 +341,7 @@ def main():
     logger.info("4. words to ids")
     corpus = convert_corpus_to_id(corpus, word2id_dict)
     logger.info("{} tokens in the corpus".format(len(corpus)))
-    corpus = subsampling(corpus, word2id_freq)
+    corpus = subsampling(corpus, word2id_freq)[:10000]
     logger.info("{} tokens in the corpus".format(len(corpus)))
 
     logger.info("5. build dataset")
@@ -380,10 +380,10 @@ def main():
 
 def inference(model_file, word2id_dict, id2word_dict):
     """前向推理"""
-    vocad_size = len(word2id_dict)
-    model = SkipGram(vocad_size=vocad_size, embedding_size=200)
+    vocab_size = len(word2id_dict)
+    model = SkipGram(vocab_size=vocab_size, embedding_size=200)
     params_dict = paddle.load(model_file)
-    model.state_dict(params_dict)
+    model.set_state_dict(params_dict)
     model.eval()
 
     word = input("input word: ")
@@ -395,6 +395,7 @@ def inference(model_file, word2id_dict, id2word_dict):
     target_words_var = paddle.to_tensor([word_id_])
 
     pred = model(center_words_var, target_words_var)
+    logger.info("predict value: {}".format(pred))
     pred_label = 1 if pred.numpy()[0] > 0.5 else 0
 
     return pred_label
@@ -418,7 +419,7 @@ if __name__ == '__main__':
                         filemode="a")
     logger.info("set gpu id")
     paddle.set_device("gpu:2")
-    is_train = True
+    is_train = False
     if is_train:
         word2id_dict, id2word_dict = main()
         word2id_dict_file = os.path.join(work_root, "data/word2id.json")
@@ -426,4 +427,10 @@ if __name__ == '__main__':
         save_json_data(word2id_dict_file, word2id_dict)
         save_json_data(id2word_dict_file, id2word_dict)
     else:
-        pass
+        word2id_dict_file = os.path.join(work_root, "data/word2id.json")
+        id2word_dict_file = os.path.join(work_root, "data/id2word.json")
+        word2id = load_json_data(word2id_dict_file)
+        id2word = load_json_data(id2word_dict_file)
+        model_file = os.path.join(work_root, "models/{}.pdparams".format("lasted"))
+        pred_lable = inference(model_file, word2id, id2word)
+        logger.info("predict label: {}".format(pred_lable))
