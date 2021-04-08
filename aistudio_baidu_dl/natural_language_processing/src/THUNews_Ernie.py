@@ -223,43 +223,39 @@ def inference(model, data_loader):
 @app.route("/news_title_cls", methods=["POST"])
 def news_title_classification():
     """文本分类---新闻标题分类"""
-    if request.method == "POST":
-        data = json.loads(request.data)
-        if isinstance(data["texts"], str):
-            data["texts"] = [data["texts"]]
+    data = json.loads(request.data)
+    if isinstance(data["texts"], str):
+        data["texts"] = [data["texts"]]
 
-        if isinstance(data["texts"], list):
-            datasets = []
-            for text in data["texts"]:
-                datasets.append({
-                    "text": text
-                })
-            datasets = MapDataset(datasets)
-            trans_func = partial(
-                convert_example,
-                tokenizer=tokenizer,
-                max_seq_length=64)
-            batchify_fn = lambda samples, fn=Tuple(
-                Pad(axis=0, pad_val=tokenizer.pad_token_id),  # input
-                Pad(axis=0, pad_val=tokenizer.pad_token_type_id),  # segment
-                Stack(dtype="int64")  # label
-            ): fn(samples)
-            data_loader = create_dataloader(datasets, mode="test", batch_size=32,
-                                            batchify_fn=batchify_fn, trans_fn=trans_func)
+    if isinstance(data["texts"], list):
+        datasets = []
+        for text in data["texts"]:
+            datasets.append({
+                "text": text
+            })
+        datasets = MapDataset(datasets)
+        trans_func = partial(
+            convert_example,
+            tokenizer=tokenizer,
+            max_seq_length=64)
+        batchify_fn = lambda samples, fn=Tuple(
+            Pad(axis=0, pad_val=tokenizer.pad_token_id),  # input
+            Pad(axis=0, pad_val=tokenizer.pad_token_type_id),  # segment
+            Stack(dtype="int64")  # label
+        ): fn(samples)
+        data_loader = create_dataloader(datasets, mode="test", batch_size=32,
+                                        batchify_fn=batchify_fn, trans_fn=trans_func)
 
-            labels = inference(model, data_loader)
-            labels_text = []
-            for id, label in enumerate(labels):
-                labels_text.append(labels_info[str(label)])
+        labels = inference(model, data_loader)
+        labels_text = []
+        for id, label in enumerate(labels):
+            labels_text.append(labels_info[str(label)])
 
-            return jsonify(status="Success",
-                           results=labels_text)
-        else:
-            return jsonify(status="Failure",
-                           message="参数格式不对.")
+        return jsonify(status="Success",
+                       results=labels_text)
     else:
         return jsonify(status="Failure",
-                       message="请求方式不对, 仅支持POST请求.")
+                       message="Incorrect parameter data type.")
 
 
 if __name__ == '__main__':
