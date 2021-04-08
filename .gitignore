@@ -17,6 +17,7 @@
 ./question_generation/tianchi_chinese_medical/.idea/
 ./knowledge_point_extraction/.idea/
 ./knowledge_point_extraction/data/
-text_rewrite/.idea/
-text_rewrite/data/
-model_server/.idea/
+./text_rewrite/.idea/
+./text_rewrite/data/
+./model_server/.idea/
+./aistudio_baidu_dl/.idea/
