@@ -380,7 +380,8 @@ def inference(model_file, word2id_dict, text_list: list):
     sentiment_classifier = SentimentClassifier(
         embedding_size, vocab_size, num_steps=max_seq_len, num_layers=1)
     params_dict = paddle.load(model_file)
-    sentiment_classifier.set_state_dict(params_dict)
+    # sentiment_classifier.set_state_dict(params_dict)
+    sentiment_classifier.load_dict(params_dict)
     sentiment_classifier.eval()
 
     inputs = []
