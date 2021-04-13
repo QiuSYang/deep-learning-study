@@ -4,6 +4,9 @@
 import os
 import logging
 import json
+import random
+import numpy as np
+import paddle
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +31,13 @@ def save_dict_obj(dict_obj, save_json_file):
     """将数据输出到json文件"""
     with open(save_json_file, mode="w", encoding="utf-8") as fw:
         json.dump(dict_obj, fw, ensure_ascii=False, indent=2)
+
+
+def set_seed(seed):
+    """set random seed"""
+    random.seed(seed)
+    np.random.seed(seed)
+    paddle.seed(seed)
 
 
 def build_dict(corpus):

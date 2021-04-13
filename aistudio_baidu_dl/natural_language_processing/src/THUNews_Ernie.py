@@ -19,16 +19,9 @@ from flask import Flask, json, jsonify, request, abort  # server
 logger = logging.getLogger(__name__)
 work_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(work_root)  # 设置工作路径
-from src.utils import init_logs, save_dict_obj, load_json_obj
+from src.utils import init_logs, save_dict_obj, load_json_obj, set_seed
 
 app = Flask(__name__)
-
-
-def set_seed(seed):
-    """set random seed"""
-    random.seed(seed)
-    np.random.seed(seed)
-    paddle.seed(seed)
 
 
 def create_classification_model(num_classes, training_steps):
