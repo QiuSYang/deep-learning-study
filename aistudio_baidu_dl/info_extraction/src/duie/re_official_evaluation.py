@@ -89,8 +89,8 @@ def _parse_structured_ovalue(json_info):
         for o_key, o_value in item['object'].items():
             o_value = del_bookname(o_value).lower()
             o[o_key] = o_value
-        spo_result.append({"predicate": item['predicate'], \
-                           "subject": s, \
+        spo_result.append({"predicate": item['predicate'],
+                           "subject": s,
                            "object": o})
     return spo_result
 
@@ -102,19 +102,28 @@ def load_predict_result(predict_filename):
     if not os.path.exists(predict_filename):
         ret_code = FILE_ERROR
         return ret_code, predict_result
-    try:
-        predict_file_zip = zipfile.ZipFile(predict_filename)
-    except:
-        ret_code = NOT_ZIP_FILE
-        return ret_code, predict_result
-    for predict_file in predict_file_zip.namelist():
-        for line in predict_file_zip.open(predict_file):
+    # try:
+    #     predict_file_zip = zipfile.ZipFile(predict_filename)
+    # except:
+    #     ret_code = NOT_ZIP_FILE
+    #     return ret_code, predict_result
+    # for predict_file in predict_file_zip.namelist():
+    #     for line in predict_file_zip.open(predict_file):
+    #         ret_code, json_info = check_format(line)
+    #         if ret_code != SUCCESS:
+    #             return ret_code, predict_result
+    #         sent = json_info['text']
+    #         spo_result = _parse_structured_ovalue(json_info)
+    #         predict_result[sent] = spo_result
+    with open(predict_filename, mode="r", encoding="utf-8") as pf:
+        for line in pf:
             ret_code, json_info = check_format(line)
             if ret_code != SUCCESS:
                 return ret_code, predict_result
             sent = json_info['text']
             spo_result = _parse_structured_ovalue(json_info)
             predict_result[sent] = spo_result
+
     return ret_code, predict_result
 
 

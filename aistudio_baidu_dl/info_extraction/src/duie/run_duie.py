@@ -138,7 +138,8 @@ def evaluate(model, criterion, data_loader, file_path, mode):
 
     if mode == "eval":
         precision, recall, f1 = get_precision_recall_f1(file_path,
-                                                        predict_zipfile_path)
+                                                        # predict_zipfile_path
+                                                        predict_file_path)
         os.system('rm {} {}'.format(predict_file_path, predict_zipfile_path))
         return precision, recall, f1
     elif mode != "predict":
@@ -267,7 +268,7 @@ def do_train():
         logger.info("\n=====training complete=====")
 
 
-def do_predict():
+def do_predict(is_evaluate=True):
     paddle.set_device(args.device)
     
     # Reads label_map.
@@ -306,8 +307,11 @@ def do_predict():
 
     # Does predictions.
     logger.info("\n=====start predicting=====")
-    evaluate(model, criterion, test_data_loader, args.predict_data_file,
-             "predict")
+    if is_evaluate:
+        precision, recall, f1 = evaluate(model, criterion, test_data_loader, args.predict_data_file, "eval")
+        logger.info("precision: {}, recall: {}, f1: {}".format(precision, recall, f1))
+    else:
+        evaluate(model, criterion, test_data_loader, args.predict_data_file, "predict")
     logger.info("=====predicting complete=====")
 
 

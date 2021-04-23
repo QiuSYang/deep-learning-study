@@ -21,6 +21,10 @@ import zipfile
 
 import numpy as np
 
+work_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(work_root)
+from src.duie.re_official_evaluation import calc_pr
+
 
 def find_entity(text_raw, id_, predictions, tok_to_orig_start_index,
                 tok_to_orig_end_index):
@@ -170,20 +174,29 @@ def write_prediction_results(formatted_outputs, file_path):
 
 
 def get_precision_recall_f1(golden_file, predict_file):
-    r = os.popen(
-        'python3 duie/re_official_evaluation.py --golden_file={} --predict_file={}'.
-        format(golden_file, predict_file))
-    result = r.read()
-    r.close()
-    # result = calc_pr(predict_filename=predict_file, golden_filename=golden_file, alias_filename='')
-    precision = float(
-        re.search("\"precision\", \"value\":.*?}", result).group(0).lstrip(
-            "\"precision\", \"value\":").rstrip("}"))
-    recall = float(
-        re.search("\"recall\", \"value\":.*?}", result).group(0).lstrip(
-            "\"recall\", \"value\":").rstrip("}"))
-    f1 = float(
-        re.search("\"f1-score\", \"value\":.*?}", result).group(0).lstrip(
-            "\"f1-score\", \"value\":").rstrip("}"))
+    # r = os.popen(
+    #     'python3 ./re_official_evaluation.py --golden_file={} --predict_file={}'.
+    #     format(golden_file, predict_file))
+    # result = r.read()
+    # r.close()
+    # precision = float(
+    #     re.search("\"precision\", \"value\":.*?}", result).group(0).lstrip(
+    #         "\"precision\", \"value\":").rstrip("}"))
+    # recall = float(
+    #     re.search("\"recall\", \"value\":.*?}", result).group(0).lstrip(
+    #         "\"recall\", \"value\":").rstrip("}"))
+    # f1 = float(
+    #     re.search("\"f1-score\", \"value\":.*?}", result).group(0).lstrip(
+    #         "\"f1-score\", \"value\":").rstrip("}"))
+
+    result = calc_pr(predict_filename=predict_file, golden_filename=golden_file, alias_filename='')
+    precision, recall, f1 = 0.0, 0.0, 0.0
+    for data in result.get("data", []):
+        if data["name"] == "precision":
+            precision = data["value"]
+        elif data["name"] == "recall":
+            recall = data["value"]
+        else:
+            f1 = data["value"]
 
     return precision, recall, f1
