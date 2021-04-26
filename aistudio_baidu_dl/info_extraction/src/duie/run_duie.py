@@ -32,11 +32,17 @@ import paddle.nn as nn
 import paddle.nn.functional as F
 from paddle.io import DataLoader
 
-from paddlenlp.transformers import ErnieTokenizer, ErnieForTokenClassification, LinearDecayWithWarmup
+from paddlenlp.transformers import (
+    ErnieTokenizer,
+    ErnieForTokenClassification,
+    RobertaTokenizer,
+    RobertaForTokenClassification,
+    LinearDecayWithWarmup)
 
 logger = logging.getLogger(__name__)
 work_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(work_root)
+IS_ROBERTA = True
 
 from src.duie.data_loader import DuIEDataset, DataCollator
 from src.duie.utils import decoding, find_entity, get_precision_recall_f1, write_prediction_results
@@ -81,6 +87,22 @@ def set_random_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     paddle.seed(seed)
+
+
+def get_model_tokenizer(num_classes):
+    """get model and tokenizer"""
+    if IS_ROBERTA:
+        # roberta language model
+        model = RobertaForTokenClassification.from_pretrained("roberta-wwm-ext-large",
+                                                              num_classes=num_classes)
+        tokenizer = RobertaTokenizer.from_pretrained("roberta-wwm-ext-large")
+    else:
+        # ERNIE language model
+        model = ErnieForTokenClassification.from_pretrained("ernie-1.0",
+                                                            num_classes=num_classes)
+        tokenizer = ErnieTokenizer.from_pretrained("ernie-1.0")
+
+    return model, tokenizer
 
 
 @paddle.no_grad()
@@ -129,7 +151,7 @@ def evaluate(model, criterion, data_loader, file_path, mode):
     logger.info("eval loss: %f" % (loss_avg))
 
     if mode == "predict":
-        predict_file_path = os.path.join(args.data_path, 'predictions.json')
+        predict_file_path = os.path.join(args.data_path, 'duie.json')
     else:
         predict_file_path = os.path.join(args.data_path, 'predict_eval.json')
 
@@ -161,10 +183,11 @@ def do_train():
     num_classes = (len(label_map.keys()) - 2) * 2 + 2
 
     # Loads pretrained model ERNIE
-    model = ErnieForTokenClassification.from_pretrained(
-        "ernie-1.0", num_classes=num_classes)
+    # model = ErnieForTokenClassification.from_pretrained(
+    #     "ernie-1.0", num_classes=num_classes)
+    model, tokenizer = get_model_tokenizer(num_classes=num_classes)
     model = paddle.DataParallel(model)
-    tokenizer = ErnieTokenizer.from_pretrained("ernie-1.0")
+    # tokenizer = ErnieTokenizer.from_pretrained("ernie-1.0")
     criterion = BCELossForDuIE()
 
     # Loads dataset.
@@ -183,7 +206,7 @@ def do_train():
     test_dataset = DuIEDataset.from_file(eval_file_path, tokenizer,
                                          args.max_seq_length, True)
     test_batch_sampler = paddle.io.BatchSampler(
-        test_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True)
+        test_dataset, batch_size=16, shuffle=False, drop_last=True)
     test_data_loader = DataLoader(
         dataset=test_dataset,
         batch_sampler=test_batch_sampler,
@@ -210,7 +233,7 @@ def do_train():
     # Starts training.
     global_step = 0
     logging_steps = 50
-    save_steps = 600
+    save_epochs = 1
     tic_train = time.time()
     for epoch in range(args.num_train_epochs):
         logger.info("\n=====start training of %d epochs=====" % epoch)
@@ -236,19 +259,20 @@ def do_train():
                        loss_item, logging_steps / (time.time() - tic_train)))
                 tic_train = time.time()
 
-            if global_step % save_steps == 0 and rank == 0:
-                logger.info("\n=====start evaluating ckpt of %d steps=====" %
-                      global_step)
-                precision, recall, f1 = evaluate(
-                    model, criterion, test_data_loader, eval_file_path, "eval")
-                logger.info("precision: %.2f\t recall: %.2f\t f1: %.2f\t" %
-                      (100 * precision, 100 * recall, 100 * f1))
-                logger.info("saving checkpoing model_%d.pdparams to %s " %
-                      (global_step, args.output_dir))
-                paddle.save(model.state_dict(),
-                            os.path.join(args.output_dir,
-                                         "model_%d.pdparams" % global_step))
-                model.train()  # back to train mode
+        if epoch % save_epochs == 0 and rank == 0:
+            # 每epoch评估一次
+            logger.info("\n=====start evaluating ckpt of %d epoch=====" %
+                  epoch)
+            precision, recall, f1 = evaluate(
+                model, criterion, test_data_loader, eval_file_path, "eval")
+            logger.info("precision: %.2f\t recall: %.2f\t f1: %.2f\t" %
+                  (100 * precision, 100 * recall, 100 * f1))
+            logger.info("saving checkpoing model_%d.pdparams to %s " %
+                  (epoch, args.output_dir))
+            paddle.save(model.state_dict(),
+                        os.path.join(args.output_dir,
+                                     "model_%d.pdparams" % epoch))
+            model.train()  # back to train mode
 
         tic_epoch = time.time() - tic_epoch
         logger.info("epoch time footlogger.info: %d hour %d min %d sec" %
@@ -280,9 +304,10 @@ def do_predict(is_evaluate=True):
     num_classes = (len(label_map.keys()) - 2) * 2 + 2
 
     # Loads pretrained model ERNIE
-    model = ErnieForTokenClassification.from_pretrained(
-        "ernie-1.0", num_classes=num_classes)
-    tokenizer = ErnieTokenizer.from_pretrained("ernie-1.0")
+    # model = ErnieForTokenClassification.from_pretrained(
+    #     "ernie-1.0", num_classes=num_classes)
+    # tokenizer = ErnieTokenizer.from_pretrained("ernie-1.0")
+    model, tokenizer = get_model_tokenizer(num_classes=num_classes)
     criterion = BCELossForDuIE()
 
     # Loads dataset.
@@ -290,7 +315,7 @@ def do_predict(is_evaluate=True):
                                          args.max_seq_length, True)
     collator = DataCollator()
     test_batch_sampler = paddle.io.BatchSampler(
-        test_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True)
+        test_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False)
     test_data_loader = DataLoader(
         dataset=test_dataset,
         batch_sampler=test_batch_sampler,
@@ -320,4 +345,4 @@ if __name__ == "__main__":
     if args.do_train:
         do_train()
     elif args.do_predict:
-        do_predict()
+        do_predict(is_evaluate=False)
