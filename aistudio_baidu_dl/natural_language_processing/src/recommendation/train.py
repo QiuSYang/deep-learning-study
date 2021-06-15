@@ -17,7 +17,7 @@ sys.path.append(work_root)  # 添加工作路径
 
 from src.recommendation.model import MovieRecommendModel
 from src.recommendation.dataset import MovieDataset
-from src.utils import init_logs, save_dict_obj
+from src.utils import init_logs, save_dict_obj, set_seed
 
 
 def create_model_opt(vocab_sizes={}):
@@ -153,6 +153,7 @@ def get_usr_mov_features(model, dataset):
 def main():
     """主函数"""
     paddle.set_device("gpu:1")
+    set_seed(2021)
     logger.info("构建数据集")
     dataset = MovieDataset(use_poster=False)
     vocab_sizes = {
@@ -180,4 +181,28 @@ def main():
 
 if __name__ == '__main__':
     init_logs()
-    main()
+    is_train = False
+    if is_train:
+        main()
+    else:
+        logger.info("获取用户的特征编码")
+        paddle.set_device("gpu:2")
+        dataset = MovieDataset(use_poster=False)
+        vocab_sizes = {
+            "max_usr_id": int(dataset.max_usr_id),
+            "max_usr_age": int(dataset.max_usr_age),
+            "max_usr_job": int(dataset.max_usr_job),
+            "max_mov_id": int(dataset.max_mov_id),
+            "movie_category_size": len(dataset.movie_cat),
+            "movie_title_size": len(dataset.movie_title)
+        }
+
+        fc_sizes = [128, 64, 32]
+        use_poster, use_mov_title, use_mov_cat, use_age_job = False, True, True, True
+        model = MovieRecommendModel(use_poster, use_mov_title, use_mov_cat, use_age_job,
+                                    vocab_sizes=vocab_sizes, fc_sizes=fc_sizes)
+        model_file = os.path.join(work_root, "models/movie_recommend/best.pdparams")
+        model_state_dict = paddle.load(model_file)
+        model.load_dict(model_state_dict)
+
+        get_usr_mov_features(model, dataset=dataset.dataset)
