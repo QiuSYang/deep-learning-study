@@ -20,4 +20,4 @@
 ./text_rewrite/.idea/
 ./text_rewrite/data/
 ./model_server/.idea/
-./aistudio_baidu_dl/.idea/
+baidu_aistudio_dl/.idea/

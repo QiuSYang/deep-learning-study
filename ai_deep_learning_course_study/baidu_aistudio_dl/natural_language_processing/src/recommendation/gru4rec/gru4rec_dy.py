@@ -17,10 +17,8 @@ from __future__ import print_function
 import os
 import sys
 import time
-import unittest
 import paddle
 import numpy as np
-import six
 
 work_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(work_root)  # 添加工作路径
